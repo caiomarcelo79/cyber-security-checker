@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -184,6 +184,11 @@ export function SocConsole() {
   const [comparisonScanA, setComparisonScanA] = useState<string | null>(null);
   const [comparisonScanB, setComparisonScanB] = useState<string | null>(null);
 
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const { theme, setTheme } = useTheme();
   const queryClient = useQueryClient();
   const token = authSession?.access_token ?? null;
@@ -246,8 +251,13 @@ export function SocConsole() {
 
   const selectedScanProgressQuery = useQuery({
     queryKey: ["scan-progress", token, selectedScanId],
-    queryFn: () => fetchScanProgress(token!, selectedScanId!),
-    enabled: Boolean(token && selectedScanId),
+    queryFn: () => {
+      if (!token || !selectedScanId || selectedScanId === "null") {
+        return Promise.reject(new Error("Scan ID ausente."));
+      }
+      return fetchScanProgress(token, selectedScanId);
+    },
+    enabled: Boolean(token && selectedScanId && selectedScanId !== "null"),
     refetchInterval: (query) => {
       const st = query.state.data?.status;
       if (liveStateRef.current === "live") return false;
@@ -257,8 +267,8 @@ export function SocConsole() {
 
   const liveState = useScanLiveProgress(
     token,
-    selectedScanId,
-    Boolean(selectedScanId) &&
+    selectedScanId && selectedScanId !== "null" ? selectedScanId : null,
+    Boolean(selectedScanId && selectedScanId !== "null") &&
       ["PENDING", "QUEUED", "RUNNING"].includes(
         selectedScanProgressQuery.data?.status ?? ""
       )
@@ -273,8 +283,13 @@ export function SocConsole() {
       selectedScanProgressQuery.data?.status,
       selectedScanProgressQuery.data?.total_checks_run,
     ],
-    queryFn: () => fetchScanDetailedResults(token!, selectedScanId!),
-    enabled: Boolean(token && selectedScanId),
+    queryFn: () => {
+      if (!token || !selectedScanId || selectedScanId === "null") {
+        return Promise.reject(new Error("Scan ID ausente."));
+      }
+      return fetchScanDetailedResults(token, selectedScanId);
+    },
+    enabled: Boolean(token && selectedScanId && selectedScanId !== "null"),
   });
 
   const scopeForm = useForm<ScopeFormValues>({
@@ -526,10 +541,31 @@ export function SocConsole() {
       setScanFeedback(
         `Auditoria ${created.id.slice(0, 8)} iniciada com perfil ${created.profile_type} — Status: ${created.status}`
       );
+      queryClient.setQueryData(["scan-progress", token, created.id], {
+        scan_id: created.id,
+        status: created.status,
+        progress_percent: created.progress_percent,
+        current_module: created.current_module,
+        completed_modules: created.completed_modules,
+        total_checks_run: created.total_checks_run,
+        findings_summary: created.findings_summary,
+        elapsed_seconds: created.elapsed_seconds,
+        error_message: created.error_message,
+        started_at: created.started_at,
+        completed_at: created.completed_at,
+      });
       void Promise.allSettled([
         invalidateScanCaches(),
-        selectedScanProgressQuery.refetch(),
-        selectedScanResultsQuery.refetch(),
+        queryClient.prefetchQuery({
+          queryKey: [
+            "scan-detailed-results",
+            token,
+            created.id,
+            created.status,
+            created.total_checks_run,
+          ],
+          queryFn: () => fetchScanDetailedResults(token, created.id),
+        }),
         assetsQuery.refetch(),
         statusQuery.refetch(),
         auditLogsQuery.refetch(),
@@ -862,16 +898,17 @@ export function SocConsole() {
               size="sm"
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
               aria-label="Alternar tema claro ou escuro"
+              suppressHydrationWarning
             >
-              {theme === "dark" ? (
-                <>
-                  <Sun className="h-3.5 w-3.5 mr-1.5" />
-                  Tema Claro
-                </>
-              ) : (
+              {mounted && theme === "light" ? (
                 <>
                   <Moon className="h-3.5 w-3.5 mr-1.5" />
                   Tema Escuro
+                </>
+              ) : (
+                <>
+                  <Sun className="h-3.5 w-3.5 mr-1.5" />
+                  Tema Claro
                 </>
               )}
             </Button>
@@ -1694,199 +1731,182 @@ export function SocConsole() {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Formulário de Disparo de Auditoria */}
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <ShieldCheck className="h-4 w-4 text-sky-500" />
-                          Iniciar Nova Auditoria Autorizada
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <form
-                          onSubmit={handleStartScan}
-                          className="space-y-3 text-xs"
-                        >
+                  {/* Formulário de Disparo de Auditoria (Largura Total) */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <ShieldCheck className="h-4 w-4 text-sky-500" />
+                        Iniciar Nova Auditoria Autorizada
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <form
+                        onSubmit={handleStartScan}
+                        className="space-y-4 text-xs"
+                      >
+                        <div>
+                          <label
+                            htmlFor="scan_asset_select"
+                            className="block font-semibold mb-1"
+                          >
+                            Ativo Alvo (Requer Status VERIFIED)
+                          </label>
+                          <select
+                            id="scan_asset_select"
+                            value={
+                              selectedScanAssetId ||
+                              selectedAssetId ||
+                              (assetsQuery.data?.[0]?.id ?? "")
+                            }
+                            onChange={(e) =>
+                              setSelectedScanAssetId(e.target.value)
+                            }
+                            className="w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                          >
+                            <option value="">
+                              -- Selecione um sistema cadastrado --
+                            </option>
+                            {(assetsQuery.data ?? []).map((a) => (
+                              <option key={a.id} value={a.id}>
+                                {a.name} ({a.target_url}) — [
+                                {a.authorization_status}]
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                           <div>
                             <label
-                              htmlFor="scan_asset_select"
+                              htmlFor="scan_profile_select"
                               className="block font-semibold mb-1"
                             >
-                              Ativo Alvo (Requer Status VERIFIED)
+                              Perfil de Auditoria
                             </label>
                             <select
-                              id="scan_asset_select"
-                              value={
-                                selectedScanAssetId ||
-                                selectedAssetId ||
-                                (assetsQuery.data?.[0]?.id ?? "")
-                              }
+                              id="scan_profile_select"
+                              value={selectedProfileType}
                               onChange={(e) =>
-                                setSelectedScanAssetId(e.target.value)
+                                setSelectedProfileType(e.target.value)
                               }
                               className="w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
                             >
-                              <option value="">
-                                -- Selecione um sistema cadastrado --
+                              <option value="QUICK">
+                                QUICK (Passivo Rápido: HTTPS, TLS, Headers, Cookies)
                               </option>
-                              {(assetsQuery.data ?? []).map((a) => (
-                                <option key={a.id} value={a.id}>
-                                  {a.name} ({a.target_url}) — [
-                                  {a.authorization_status}]
-                                </option>
-                              ))}
+                              <option value="STANDARD">
+                                STANDARD (Padrão Web)
+                              </option>
+                              <option value="API">
+                                API (REST & GraphQL)
+                              </option>
+                              <option value="AUTHENTICATED">
+                                AUTHENTICATED (Sessão Autenticada)
+                              </option>
+                              <option value="DEEP_ASSESSMENT">
+                                DEEP_ASSESSMENT (Restrito a Lab/Homologação)
+                              </option>
                             </select>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label
-                                htmlFor="scan_profile_select"
-                                className="block font-semibold mb-1"
-                              >
-                                Perfil de Auditoria
-                              </label>
-                              <select
-                                id="scan_profile_select"
-                                value={selectedProfileType}
-                                onChange={(e) =>
-                                  setSelectedProfileType(e.target.value)
-                                }
-                                className="w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
-                              >
-                                <option value="QUICK">
-                                  QUICK (Passivo Rápido: HTTPS, TLS, Headers,
-                                  Cookies)
-                                </option>
-                                <option value="STANDARD">
-                                  STANDARD (Padrão Web)
-                                </option>
-                                <option value="API">
-                                  API (REST & GraphQL)
-                                </option>
-                                <option value="AUTHENTICATED">
-                                  AUTHENTICATED (Sessão Autenticada)
-                                </option>
-                                <option value="DEEP_ASSESSMENT">
-                                  DEEP_ASSESSMENT (Restrito a Lab/Homologação)
-                                </option>
-                              </select>
-                            </div>
-
-                            <div>
-                              <label
-                                htmlFor="scan_rps_input"
-                                className="block font-semibold mb-1"
-                              >
-                                Limite de Taxa (Máx Req/s)
-                              </label>
-                              <input
-                                id="scan_rps_input"
-                                type="number"
-                                min={1}
-                                max={20}
-                                value={scanMaxRps}
-                                onChange={(e) =>
-                                  setScanMaxRps(Number(e.target.value) || 5)
-                                }
-                                className="w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
-                              />
-                            </div>
+                          <div>
+                            <label
+                              htmlFor="scan_rps_input"
+                              className="block font-semibold mb-1"
+                            >
+                              Limite de Taxa (Máx Req/s)
+                            </label>
+                            <input
+                              id="scan_rps_input"
+                              type="number"
+                              min={1}
+                              max={20}
+                              value={scanMaxRps}
+                              onChange={(e) =>
+                                setScanMaxRps(Number(e.target.value) || 5)
+                              }
+                              className="w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                            />
                           </div>
 
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label
-                                htmlFor="scan_conc_input"
-                                className="block font-semibold mb-1"
-                              >
-                                Concorrência Máxima
-                              </label>
-                              <input
-                                id="scan_conc_input"
-                                type="number"
-                                min={1}
-                                max={10}
-                                value={scanMaxConcurrency}
-                                onChange={(e) =>
-                                  setScanMaxConcurrency(
-                                    Number(e.target.value) || 3
-                                  )
-                                }
-                                className="w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
-                              />
-                            </div>
-
-                            <div>
-                              <label
-                                htmlFor="scan_timeout_input"
-                                className="block font-semibold mb-1"
-                              >
-                                Timeout por Requisição (s)
-                              </label>
-                              <input
-                                id="scan_timeout_input"
-                                type="number"
-                                min={2}
-                                max={30}
-                                value={scanTimeoutSeconds}
-                                onChange={(e) =>
-                                  setScanTimeoutSeconds(
-                                    Number(e.target.value) || 10
-                                  )
-                                }
-                                className="w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
-                              />
-                            </div>
+                          <div>
+                            <label
+                              htmlFor="scan_conc_input"
+                              className="block font-semibold mb-1"
+                            >
+                              Concorrência Máxima
+                            </label>
+                            <input
+                              id="scan_conc_input"
+                              type="number"
+                              min={1}
+                              max={10}
+                              value={scanMaxConcurrency}
+                              onChange={(e) =>
+                                setScanMaxConcurrency(
+                                  Number(e.target.value) || 3
+                                )
+                              }
+                              className="w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                            />
                           </div>
 
-                          <div className="flex items-center gap-2 pt-1">
+                          <div>
+                            <label
+                              htmlFor="scan_timeout_input"
+                              className="block font-semibold mb-1"
+                            >
+                              Timeout por Requisição (s)
+                            </label>
+                            <input
+                              id="scan_timeout_input"
+                              type="number"
+                              min={2}
+                              max={30}
+                              value={scanTimeoutSeconds}
+                              onChange={(e) =>
+                                setScanTimeoutSeconds(
+                                  Number(e.target.value) || 10
+                                )
+                              }
+                              className="w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-200 dark:border-slate-800">
+                          <div className="flex items-center gap-2">
                             <input
                               id="scan_sync_checkbox"
                               type="checkbox"
                               checked={executeSync}
                               onChange={(e) => setExecuteSync(e.target.checked)}
-                              className="rounded border-slate-700"
+                              className="rounded border-slate-700 h-4 w-4 text-sky-500 focus:ring-sky-400"
                             />
-                            <label htmlFor="scan_sync_checkbox">
-                              Aguardar conclusão imediata do worker (execução
-                              síncrona determinística)
+                            <label htmlFor="scan_sync_checkbox" className="text-slate-600 dark:text-slate-300 cursor-pointer text-xs">
+                              Aguardar conclusão imediata do worker (execução síncrona determinística)
                             </label>
                           </div>
 
-                          <Button type="submit" disabled={scanSubmitting}>
+                          <Button type="submit" disabled={scanSubmitting} className="sm:w-auto">
                             {scanSubmitting
                               ? "Executando Auditoria..."
                               : "Iniciar Auditoria de Segurança"}
                           </Button>
-                        </form>
-                      </CardContent>
-                    </Card>
-
-                    <ScansHistoryPanel
-                      token={token!}
-                      role={authSession.active_role}
-                      assets={assetsQuery.data ?? []}
-                      selectedScanId={selectedScanId}
-                      onSelect={setSelectedScanId}
-                      onCancel={handleCancelScan}
-                      onCompare={(scanA, scanB) => {
-                        setComparisonScanA(scanA);
-                        setComparisonScanB(scanB);
-                        setComparisonModalOpen(true);
-                      }}
-                    />
-                  </div>
+                        </div>
+                      </form>
+                    </CardContent>
+                  </Card>
 
                   {/* Painel de Progresso em Tempo Real e Resultados Detalhados */}
                   {selectedScanId && selectedScanResultsQuery.data && (
-                    <div className="space-y-6">
+                    <div id="scan-monitor-section" className="space-y-6">
                       <ScanEventsCard token={token!} scanId={selectedScanId} />
-                      <Card>
+                      <Card className="border-sky-500/40 shadow-sm">
                         <CardHeader className="pb-2">
                           <div className="flex items-center justify-between">
-                            <CardTitle>
+                            <CardTitle className="flex items-center gap-2">
+                              <span className="inline-block w-2.5 h-2.5 rounded-full bg-sky-500 animate-pulse" />
                               Monitor de Execução — Auditoria{" "}
                               {selectedScanResultsQuery.data.scan.id.slice(
                                 0,
@@ -1917,6 +1937,14 @@ export function SocConsole() {
                                   Cancelar Agora
                                 </Button>
                               )}
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setSelectedScanId(null)}
+                                className="h-8 text-xs text-slate-500 hover:text-slate-900 dark:hover:text-slate-100"
+                              >
+                                Fechar Monitor
+                              </Button>
                             </div>
                           </div>
                         </CardHeader>
@@ -2135,6 +2163,21 @@ export function SocConsole() {
                       </Card>
                     </div>
                   )}
+
+                  {/* Histórico Completo de Auditorias (Largura total, responsivo) */}
+                  <ScansHistoryPanel
+                    token={token!}
+                    role={authSession.active_role}
+                    assets={assetsQuery.data ?? []}
+                    selectedScanId={selectedScanId}
+                    onSelect={setSelectedScanId}
+                    onCancel={handleCancelScan}
+                    onCompare={(scanA, scanB) => {
+                      setComparisonScanA(scanA);
+                      setComparisonScanB(scanB);
+                      setComparisonModalOpen(true);
+                    }}
+                  />
                 </>
               )}
             </div>

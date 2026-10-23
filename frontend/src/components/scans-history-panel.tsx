@@ -125,11 +125,11 @@ export function ScansHistoryPanel({
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Histórico de auditorias</CardTitle>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Histórico de auditorias</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3 text-xs">
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-3" role="search" aria-label="Filtros de auditorias">
+      <CardContent className="space-y-4 text-xs">
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6" role="search" aria-label="Filtros de auditorias">
           <input aria-label="Buscar auditorias" placeholder="Buscar ID, ativo, perfil…" className={inputClass} value={filters.search} onChange={(e) => update("search", e.target.value)} maxLength={120} />
           <select aria-label="Filtrar auditorias por ativo" className={inputClass} value={filters.asset_id} onChange={(e) => update("asset_id", e.target.value)}>
             <option value="">Todos os ativos</option>
@@ -139,8 +139,8 @@ export function ScansHistoryPanel({
             <option value="">Todos os estados</option>
             {Object.entries(SCAN_STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
-          <label className="flex items-center gap-1">De <input type="date" aria-label="Auditorias a partir de" className={inputClass} value={filters.date_from} onChange={(e) => update("date_from", e.target.value)} /></label>
-          <label className="flex items-center gap-1">Até <input type="date" aria-label="Auditorias até" className={inputClass} value={filters.date_to} onChange={(e) => update("date_to", e.target.value)} /></label>
+          <label className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">De <input type="date" aria-label="Auditorias a partir de" className={inputClass} value={filters.date_from} onChange={(e) => update("date_from", e.target.value)} /></label>
+          <label className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">Até <input type="date" aria-label="Auditorias até" className={inputClass} value={filters.date_to} onChange={(e) => update("date_to", e.target.value)} /></label>
           <select aria-label="Ordenar auditorias por data" className={inputClass} value={filters.sort_desc ? "desc" : "asc"} onChange={(e) => update("sort_desc", e.target.value === "desc")}>
             <option value="desc">Mais recentes primeiro</option>
             <option value="asc">Mais antigas primeiro</option>
@@ -185,28 +185,36 @@ export function ScansHistoryPanel({
         ) : !data || data.total === 0 ? (
           <p className="text-slate-500" data-testid="scans-empty">Nenhuma auditoria encontrada. Inicie uma auditoria em um ativo com autorização verificada.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="text-slate-500">
+          <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-800">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-slate-50 dark:bg-slate-900/60 text-slate-500 uppercase tracking-wider text-[11px] font-semibold border-b border-slate-200 dark:border-slate-800">
                 <tr>
-                  <th className="py-1 pr-2 w-8 text-center" title="Selecionar para comparação">Comp.</th>
-                  <th className="py-1 pr-2">ID</th>
-                  <th className="pr-2">Ativo</th>
-                  <th className="pr-2">Perfil</th>
-                  <th className="pr-2">Criada em</th>
-                  <th className="pr-2">Estado</th>
-                  <th className="pr-2">Progresso</th>
-                  <th className="pr-2">Duração</th>
-                  <th className="pr-2">Descobertas</th>
-                  <th>Ações</th>
+                  <th className="py-2.5 px-3 w-10 text-center whitespace-nowrap" title="Selecionar para comparação">Comp.</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap min-w-[90px]">ID</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap min-w-[140px]">Ativo</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap min-w-[140px]">Perfil</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap min-w-[160px]">Criada em</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap min-w-[110px]">Estado</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap min-w-[140px]">Progresso</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap min-w-[85px]">Duração</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap min-w-[90px]">Descobertas</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap text-right min-w-[110px]">Ações</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                 {data.items.map((s) => {
                   const active = ACTIVE_SCAN_STATUSES.includes(s.status);
+                  const isSelected = selectedScanId === s.id;
                   return (
-                    <tr key={s.id} className={`border-t border-slate-200 dark:border-slate-800 ${selectedScanId === s.id ? "bg-sky-500/5" : ""}`}>
-                      <td className="py-2 pr-2 text-center">
+                    <tr
+                      key={s.id}
+                      className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40 ${
+                        isSelected
+                          ? "bg-sky-500/10 dark:bg-sky-500/15 font-medium"
+                          : ""
+                      }`}
+                    >
+                      <td className="py-2.5 px-3 text-center whitespace-nowrap">
                         <input
                           type="checkbox"
                           aria-label={`Comparar auditoria ${s.id.slice(0, 8)}`}
@@ -224,20 +232,54 @@ export function ScansHistoryPanel({
                           }}
                         />
                       </td>
-                      <td className="py-2 pr-2 font-mono">{s.id.slice(0, 8)}</td>
-                      <td className="pr-2">{s.asset_name ?? s.asset_id}</td>
-                      <td className="pr-2">{s.profile_type}</td>
-                      <td className="pr-2">{formatDateTime(s.created_at)}</td>
-                      <td className="pr-2"><Badge variant={s.status === "FAILED" ? "critical" : s.status === "COMPLETED" ? "success" : "outline"}>{SCAN_STATUS_LABEL[s.status] ?? s.status}</Badge></td>
-                      <td className="pr-2">
-                        <progress aria-label={`Progresso da auditoria ${s.id.slice(0, 8)}`} className="h-2 w-20" value={s.progress_percent} max={100} /> {s.progress_percent}%
+                      <td className="py-2.5 px-3 font-mono text-sky-600 dark:text-sky-400 whitespace-nowrap">
+                        {s.id.slice(0, 8)}
                       </td>
-                      <td className="pr-2">{formatDuration(s.elapsed_seconds)}</td>
-                      <td className="pr-2">{countFindings(s.findings_summary)}</td>
-                      <td className="space-x-1 whitespace-nowrap">
-                        <Button size="sm" variant="secondary" onClick={() => onSelect(s.id)}>Detalhes</Button>
+                      <td className="py-2.5 px-3 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
+                        {s.asset_name ?? s.asset_id}
+                      </td>
+                      <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[11px] text-slate-700 dark:text-slate-300">
+                        {s.profile_type}
+                      </td>
+                      <td className="py-2.5 px-3 whitespace-nowrap text-slate-500 dark:text-slate-400">
+                        {formatDateTime(s.created_at)}
+                      </td>
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        <Badge variant={s.status === "FAILED" ? "critical" : s.status === "COMPLETED" ? "success" : "outline"}>
+                          {SCAN_STATUS_LABEL[s.status] ?? s.status}
+                        </Badge>
+                      </td>
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <progress
+                            aria-label={`Progresso da auditoria ${s.id.slice(0, 8)}`}
+                            className="h-2 w-16"
+                            value={s.progress_percent}
+                            max={100}
+                          />
+                          <span className="text-[11px] font-mono">{s.progress_percent}%</span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3 whitespace-nowrap text-slate-500 dark:text-slate-400">
+                        {formatDuration(s.elapsed_seconds)}
+                      </td>
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        <span className="font-semibold text-slate-700 dark:text-slate-200">
+                          {countFindings(s.findings_summary)}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-right space-x-1 whitespace-nowrap">
+                        <Button
+                          size="sm"
+                          variant={isSelected ? "default" : "secondary"}
+                          onClick={() => onSelect(s.id)}
+                        >
+                          Detalhes
+                        </Button>
                         {active && allowCancel && (
-                          <Button size="sm" variant="outline" onClick={() => onCancel(s.id)}>Cancelar</Button>
+                          <Button size="sm" variant="outline" onClick={() => onCancel(s.id)}>
+                            Cancelar
+                          </Button>
                         )}
                       </td>
                     </tr>
