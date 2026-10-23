@@ -1,0 +1,146 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: csc-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_dev_password_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-cybersecuritychecker}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - csc_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-cybersecuritychecker}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: csc-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - csc_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: infrastructure/Dockerfile.backend
+    container_name: csc-backend
+    restart: unless-stopped
+    environment:
+      APP_NAME: cyber-security-checker
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_dev_password_change_me}@postgres:5432/${POSTGRES_DB:-cybersecuritychecker}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      SECRET_KEY: ${SECRET_KEY:-dev-only-secret-key-replace-in-production-with-64-hex-chars}
+      REPORTS_DIR: /workspace/backend/data/reports
+      BLOCK_PRIVATE_NETWORKS: "true"
+      ALLOW_LOCAL_LAB_TARGETS: "true"
+      LAB_ALLOWED_HOSTS: "lab-target,localhost-lab.internal"
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - csc_reports_data:/workspace/backend/data/reports
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  worker:
+    build:
+      context: .
+      dockerfile: infrastructure/Dockerfile.backend
+    container_name: csc-worker
+    restart: unless-stopped
+    working_dir: /workspace
+    command: ["celery", "-A", "workers.celery_app:celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+    environment:
+      APP_NAME: cyber-security-checker
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_dev_password_change_me}@postgres:5432/${POSTGRES_DB:-cybersecuritychecker}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      SECRET_KEY: ${SECRET_KEY:-dev-only-secret-key-replace-in-production-with-64-hex-chars}
+      REPORTS_DIR: /workspace/backend/data/reports
+      BLOCK_PRIVATE_NETWORKS: "true"
+      ALLOW_LOCAL_LAB_TARGETS: ${ALLOW_LOCAL_LAB_TARGETS:-true}
+      LAB_ALLOWED_HOSTS: "lab-target,localhost-lab.internal"
+    volumes:
+      - csc_reports_data:/workspace/backend/data/reports
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import redis; r = redis.from_url('redis://redis:6379/0'); assert r.ping()\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  beat:
+    build:
+      context: .
+      dockerfile: infrastructure/Dockerfile.backend
+    container_name: csc-beat
+    restart: unless-stopped
+    working_dir: /workspace
+    command: ["celery", "-A", "workers.celery_app:celery_app", "beat", "--loglevel=info", "--schedule=/tmp/celerybeat-schedule"]
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: infrastructure/Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-8000}/api/v1
+    container_name: csc-frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-8000}/api/v1
+      INTERNAL_API_URL: http://backend:8000/api/v1
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+volumes:
+  csc_postgres_data:
+  csc_redis_data:
+  csc_reports_data:

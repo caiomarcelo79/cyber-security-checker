@@ -1,0 +1,13 @@
+[project]
+name = "cyber-security-checker-backend"
+version = "0.1.0"
+description = "Backend API, Orquestrador, Persistência e Integração com Workers do cyber-security-checker."
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "..", "../security-engine"]
+
+[tool.ruff]
+line-length = 105
+target-version = "py311"
