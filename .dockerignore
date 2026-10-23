@@ -1,7 +1,9 @@
 .venv/
 **/.venv/
 **/node_modules/
-**/.next/
+!frontend/.next/standalone/node_modules/
+!frontend/.next/standalone/node_modules/**
+**/.next/cache/
 **/__pycache__/
 **/*.pyc
 .pytest_cache/

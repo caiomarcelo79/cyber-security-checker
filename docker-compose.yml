@@ -123,11 +123,11 @@ services:
       context: .
       dockerfile: infrastructure/Dockerfile.frontend
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-8000}/api/v1
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api/v1}
     container_name: csc-frontend
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-8000}/api/v1
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api/v1}
       INTERNAL_API_URL: http://backend:8000/api/v1
     ports:
       - "${FRONTEND_PORT:-3000}:3000"

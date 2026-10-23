@@ -389,9 +389,11 @@ export function SocConsole() {
       setAssetFeedback(
         `Ativo '${created.name}' (${created.hostname}) cadastrado com sucesso! Inicie abaixo a comprovação de autorização.`
       );
-      await assetsQuery.refetch();
-      await statusQuery.refetch();
-      await auditLogsQuery.refetch();
+      void Promise.allSettled([
+        assetsQuery.refetch(),
+        statusQuery.refetch(),
+        auditLogsQuery.refetch(),
+      ]);
     } catch (err) {
       setAssetFeedback(
         err instanceof Error ? err.message : "Erro ao criar ativo."
@@ -411,8 +413,10 @@ export function SocConsole() {
       setAssetFeedback(
         `Desafio ${challenge.method} gerado! Token: ${challenge.verification_token}`
       );
-      await selectedAssetAuthsQuery.refetch();
-      await auditLogsQuery.refetch();
+      void Promise.allSettled([
+        selectedAssetAuthsQuery.refetch(),
+        auditLogsQuery.refetch(),
+      ]);
     } catch (err) {
       setAssetFeedback(
         err instanceof Error ? err.message : "Erro ao gerar desafio."
@@ -434,15 +438,17 @@ export function SocConsole() {
       setAssetFeedback(
         `Comprovação ${verified.method} VALIDADA com sucesso! Status do ativo atualizado para VERIFIED.`
       );
-      await selectedAssetAuthsQuery.refetch();
-      await assetsQuery.refetch();
-      await statusQuery.refetch();
-      await auditLogsQuery.refetch();
+      void Promise.allSettled([
+        selectedAssetAuthsQuery.refetch(),
+        assetsQuery.refetch(),
+        statusQuery.refetch(),
+        auditLogsQuery.refetch(),
+      ]);
     } catch (err) {
       setAssetFeedback(
         err instanceof Error ? err.message : "Falha na comprovação técnica."
       );
-      await auditLogsQuery.refetch();
+      void auditLogsQuery.refetch();
     }
   }
 
@@ -457,10 +463,12 @@ export function SocConsole() {
         authRecord.id
       );
       setAssetFeedback("Autorização revogada formalmente.");
-      await selectedAssetAuthsQuery.refetch();
-      await assetsQuery.refetch();
-      await statusQuery.refetch();
-      await auditLogsQuery.refetch();
+      void Promise.allSettled([
+        selectedAssetAuthsQuery.refetch(),
+        assetsQuery.refetch(),
+        statusQuery.refetch(),
+        auditLogsQuery.refetch(),
+      ]);
     } catch (err) {
       setAssetFeedback(
         err instanceof Error ? err.message : "Erro ao revogar autorização."
@@ -473,8 +481,10 @@ export function SocConsole() {
     try {
       await addOrganizationMember(token, values);
       memberForm.reset();
-      await membersQuery.refetch();
-      await auditLogsQuery.refetch();
+      void Promise.allSettled([
+        membersQuery.refetch(),
+        auditLogsQuery.refetch(),
+      ]);
     } catch (err) {
       setAssetFeedback(
         err instanceof Error ? err.message : "Erro ao adicionar membro."
@@ -516,12 +526,14 @@ export function SocConsole() {
       setScanFeedback(
         `Auditoria ${created.id.slice(0, 8)} iniciada com perfil ${created.profile_type} — Status: ${created.status}`
       );
-      await invalidateScanCaches();
-      await selectedScanProgressQuery.refetch();
-      await selectedScanResultsQuery.refetch();
-      await assetsQuery.refetch();
-      await statusQuery.refetch();
-      await auditLogsQuery.refetch();
+      void Promise.allSettled([
+        invalidateScanCaches(),
+        selectedScanProgressQuery.refetch(),
+        selectedScanResultsQuery.refetch(),
+        assetsQuery.refetch(),
+        statusQuery.refetch(),
+        auditLogsQuery.refetch(),
+      ]);
     } catch (err) {
       setScanFeedback(
         err instanceof Error ? err.message : "Erro ao iniciar auditoria."
@@ -539,11 +551,13 @@ export function SocConsole() {
       setScanFeedback(
         `Auditoria ${cancelled.id.slice(0, 8)} cancelada cooperativamente (${cancelled.status}).`
       );
-      await invalidateScanCaches();
-      await selectedScanProgressQuery.refetch();
-      await selectedScanResultsQuery.refetch();
-      await statusQuery.refetch();
-      await auditLogsQuery.refetch();
+      void Promise.allSettled([
+        invalidateScanCaches(),
+        selectedScanProgressQuery.refetch(),
+        selectedScanResultsQuery.refetch(),
+        statusQuery.refetch(),
+        auditLogsQuery.refetch(),
+      ]);
     } catch (err) {
       setScanFeedback(
         err instanceof Error ? err.message : "Erro ao cancelar auditoria."
