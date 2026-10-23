@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -664,13 +665,21 @@ class ScanOrchestrator:
                 sev_key = fnd.severity.value
                 severity_counts[sev_key] = severity_counts.get(sev_key, 0) + 1
 
+                safe_fp = str(fnd.fingerprint or "").strip()
+                if len(safe_fp) > 64:
+                    safe_fp = hashlib.sha256(safe_fp.encode("utf-8")).hexdigest()[:32]
+                elif not safe_fp:
+                    safe_fp = hashlib.sha256(
+                        f"{asset.hostname}|{fnd.module_id}|{fnd.check_id}|{fnd.endpoint}".encode("utf-8")
+                    ).hexdigest()[:32]
+
                 # Verifica se já houve detecção prévia do mesmo fingerprint neste ativo
                 prior_finding = db.scalar(
                     select(FindingRecord)
                     .where(
                         FindingRecord.asset_id == asset.id,
                         FindingRecord.organization_id == scan.organization_id,
-                        FindingRecord.fingerprint == fnd.fingerprint,
+                        FindingRecord.fingerprint == safe_fp,
                     )
                     .order_by(FindingRecord.last_confirmed_at.desc())
                 )
@@ -696,7 +705,7 @@ class ScanOrchestrator:
                         organization_id=scan.organization_id,
                         asset_id=asset.id,
                         scan_id=scan.id,
-                        fingerprint=fnd.fingerprint,
+                        fingerprint=safe_fp,
                         module_id=fnd.module_id,
                         check_id=fnd.check_id,
                         title=fnd.title,

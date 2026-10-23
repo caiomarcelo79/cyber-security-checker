@@ -223,7 +223,7 @@ class FindingRecord(Base):
     scan_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    fingerprint: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     module_id: Mapped[str] = mapped_column(String(80), nullable=False)
     check_id: Mapped[str] = mapped_column(String(80), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)

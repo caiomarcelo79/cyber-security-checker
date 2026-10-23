@@ -1142,7 +1142,9 @@ class ModuleAReconHeadersTLS(BaseSecurityModule):
                                 endpoint=domain,
                                 module_id=self.metadata.module_id,
                                 check_id="CHK-A12",
-                                fingerprint=f"{domain}|{self.metadata.module_id}|CHK-A12|missing-email-auth",
+                                fingerprint=RiskEngine.compute_finding_fingerprint(
+                                    domain, self.metadata.module_id, "CHK-A12", domain, "missing-email-auth"
+                                ),
                                 title=f"Ausência de Políticas de Autenticação de E-mail (SPF/DMARC) em '{domain}'",
                                 description=(
                                     f"O domínio '{domain}' não possui configuração completa de SPF e/ou DMARC ({reason}), "
@@ -1552,7 +1554,9 @@ class ModuleBAuthLogin(BaseSecurityModule):
                     endpoint=target_url,
                     module_id=self.metadata.module_id,
                     check_id="CHK-B01",
-                    fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-B01|http-auth-transport",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-B01", target_url, "http-auth-transport"
+                    ),
                     title="Página de Autenticação Servida via HTTP em Texto Claro",
                     description="O formulário ou tela de autenticação é transmitido sem criptografia TLS/HTTPS, permitindo interceptação de credenciais.",
                     category="Autenticação e Criptografia em Trânsito",
@@ -1586,7 +1590,9 @@ class ModuleBAuthLogin(BaseSecurityModule):
                     endpoint=target_url,
                     module_id=self.metadata.module_id,
                     check_id="CHK-B01",
-                    fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-B01|insecure-form-action",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-B01", target_url, "insecure-form-action"
+                    ),
                     title="Formulário de Login Submete Dados para URL HTTP Não Criptografada",
                     description=f"A ação do formulário de autenticação direciona para {insecure_form_actions[0]}, transmitindo credenciais em texto claro.",
                     category="Autenticação e Criptografia em Trânsito",
@@ -1647,7 +1653,9 @@ class ModuleBAuthLogin(BaseSecurityModule):
                     endpoint=target_url,
                     module_id=self.metadata.module_id,
                     check_id="CHK-B02",
-                    fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-B02|user-enumeration",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-B02", target_url, "user-enumeration"
+                    ),
                     title="Discrepância Observável em Mensagens de Autenticação (Enumeração de Usuários)",
                     description=(
                         f"A aplicação responde com mensagem que diferencia usuário inexistente ('{matched_enum}'), "
@@ -1698,7 +1706,9 @@ class ModuleBAuthLogin(BaseSecurityModule):
                         endpoint=target_url,
                         module_id=self.metadata.module_id,
                         check_id="CHK-B03",
-                        fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-B03|auth-cache-control",
+                        fingerprint=RiskEngine.compute_finding_fingerprint(
+                            hostname, self.metadata.module_id, "CHK-B03", target_url, "auth-cache-control"
+                        ),
                         title="Ausência de Cache-Control: no-store em Endpoint de Autenticação",
                         description="Endpoints e telas de login devem impedir o armazenamento em cache de navegador ou proxies para proteger credenciais.",
                         category="Gerenciamento de Sessão e Cache",
@@ -1875,7 +1885,9 @@ class ModuleCXSSSafe(BaseSecurityModule):
                     endpoint=target_url,
                     module_id=self.metadata.module_id,
                     check_id="CHK-C01",
-                    fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-C01|reflected-xss-chars",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-C01", target_url, "reflected-xss-chars"
+                    ),
                     title="Reflexão de Entrada sem Codificação Contextual HTML (XSS Refletido)",
                     description=(
                         "A aplicação reflete dados fornecidos na URL diretamente no corpo da resposta sem aplicar "
@@ -1946,7 +1958,9 @@ class ModuleCXSSSafe(BaseSecurityModule):
                     endpoint=target_url,
                     module_id=self.metadata.module_id,
                     check_id="CHK-C02",
-                    fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-C02|dom-xss-sink",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-C02", target_url, "dom-xss-sink"
+                    ),
                     title=f"Uso de Sink DOM Inseguro ('{sink_str}') em Script do Lado Cliente",
                     description=(
                         f"O código JavaScript cliente utiliza manipulação direta de DOM via '{sink_str}'. "
@@ -1997,7 +2011,9 @@ class ModuleCXSSSafe(BaseSecurityModule):
                     endpoint=target_url,
                     module_id=self.metadata.module_id,
                     check_id="CHK-C03",
-                    fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-C03|missing-csp-defense",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-C03", target_url, "missing-csp-defense"
+                    ),
                     title="Ausência de Content-Security-Policy para Defesa em Profundidade contra XSS",
                     description="A aplicação web não envia o cabeçalho Content-Security-Policy, impedindo a restrição de fontes de execução de scripts.",
                     category="Defesa em Profundidade e Headers",
@@ -2031,7 +2047,9 @@ class ModuleCXSSSafe(BaseSecurityModule):
                     endpoint=target_url,
                     module_id=self.metadata.module_id,
                     check_id="CHK-C03",
-                    fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-C03|unsafe-inline-csp",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-C03", target_url, "unsafe-inline-csp"
+                    ),
                     title="Content-Security-Policy Permite 'unsafe-inline' sem Nonces Criptográficos",
                     description="O uso de 'unsafe-inline' na diretiva de script da CSP permite a execução de blocos de scripts inline arbitrários.",
                     category="Defesa em Profundidade e Headers",
@@ -2189,7 +2207,9 @@ class ModuleDSQLiIndicators(BaseSecurityModule):
                     endpoint=target_url,
                     module_id=self.metadata.module_id,
                     check_id="CHK-D01",
-                    fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-D01|sql-error-signature",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-D01", target_url, "sql-error-signature"
+                    ),
                     title=f"Exposição de Mensagem de Erro de Banco de Dados ({label})",
                     description=(
                         f"A aplicação expos a assinatura de erro de banco '{label}' no corpo da resposta HTTP. "
@@ -2257,7 +2277,9 @@ class ModuleDSQLiIndicators(BaseSecurityModule):
                     endpoint=target_url,
                     module_id=self.metadata.module_id,
                     check_id="CHK-D02",
-                    fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-D02|sqli-boundary-anomaly",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-D02", target_url, "sqli-boundary-anomaly"
+                    ),
                     title="Vulnerabilidade Potencial a SQL Injection Identificada por Teste de Limite",
                     description="O envio de caractere de escape de string provocou falha de banco de dados, evidenciando ausência de Prepared Statements.",
                     category="Injeção e Persistência Segura",
@@ -2413,7 +2435,9 @@ class ModuleFDoSResiliencePosture(BaseSecurityModule):
                     endpoint=target_url,
                     module_id=self.metadata.module_id,
                     check_id="CHK-F01",
-                    fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-F01|missing-edge-waf",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-F01", target_url, "missing-edge-waf"
+                    ),
                     title="Ausência de Proteção de Borda (CDN / WAF) Detectada",
                     description=(
                         "A aplicação aparenta estar exposta diretamente sem uma camada de filtragem de borda "
@@ -2471,7 +2495,9 @@ class ModuleFDoSResiliencePosture(BaseSecurityModule):
                     endpoint=target_url,
                     module_id=self.metadata.module_id,
                     check_id="CHK-F02",
-                    fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-F02|missing-rate-limit-headers",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-F02", target_url, "missing-rate-limit-headers"
+                    ),
                     title="Ausência de Cabeçalhos de Rate Limiting em Respostas",
                     description=(
                         "O servidor não informa cotas de requisição por cliente via cabeçalhos padronizados "
@@ -2616,7 +2642,9 @@ class ModuleGAPISecurity(BaseSecurityModule):
                     endpoint=target_url,
                     module_id=self.metadata.module_id,
                     check_id="CHK-G01",
-                    fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-G01|cors-wildcard-credentials",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-G01", target_url, "cors-wildcard-credentials"
+                    ),
                     title="Configuração Inválida e Insegura de CORS (Wildcard com Credenciais)",
                     description="A resposta combina 'Access-Control-Allow-Origin: *' com 'Access-Control-Allow-Credentials: true', uma configuração insegura e rejeitada por navegadores.",
                     category="Segurança de APIs e CORS",
@@ -2650,7 +2678,9 @@ class ModuleGAPISecurity(BaseSecurityModule):
                     endpoint=target_url,
                     module_id=self.metadata.module_id,
                     check_id="CHK-G01",
-                    fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-G01|cors-origin-null",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-G01", target_url, "cors-origin-null"
+                    ),
                     title="Política de CORS com Origem 'null' Habilitada",
                     description="O valor 'null' em Access-Control-Allow-Origin pode ser explorado por iframes sandboxed para realizar requisições cross-origin.",
                     category="Segurança de APIs e CORS",
@@ -2713,7 +2743,9 @@ class ModuleGAPISecurity(BaseSecurityModule):
                     endpoint=target_url,
                     module_id=self.metadata.module_id,
                     check_id="CHK-G02",
-                    fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-G02|public-openapi-docs",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-G02", target_url, "public-openapi-docs"
+                    ),
                     title="Especificação OpenAPI/Swagger Exposta Publicamente",
                     description=f"A documentação técnica da API está exposta em '{docs_path}' sem autenticação, facilitando a enumeração de rotas e parâmetros.",
                     category="Gerenciamento de Superfície de Ataque e Inventário",
@@ -2763,7 +2795,9 @@ class ModuleGAPISecurity(BaseSecurityModule):
                     endpoint=target_url,
                     module_id=self.metadata.module_id,
                     check_id="CHK-G03",
-                    fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-G03|trace-method-enabled",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-G03", target_url, "trace-method-enabled"
+                    ),
                     title="Método HTTP TRACE Habilitado na API",
                     description="O método TRACE ecoa o conteúdo recebido pelo servidor e pode ser utilizado para capturar cookies HttpOnly (Cross-Site Tracing).",
                     category="Configurações de Segurança e Métodos HTTP",
@@ -2915,7 +2949,9 @@ class ModuleHMisconfigAndOther(BaseSecurityModule):
                     endpoint=target_url,
                     module_id=self.metadata.module_id,
                     check_id="CHK-H01",
-                    fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-H01|sensitive-file-leak",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-H01", target_url, "sensitive-file-leak"
+                    ),
                     title="Arquivo de Configuração Sensível (.env / git) Exposto Publicamente",
                     description=f"O caminho '{sensitive_exposed}' está acessível publicamente, revelando dados confidenciais de ambiente.",
                     category="Configuração e Controle de Acesso",
@@ -2967,7 +3003,9 @@ class ModuleHMisconfigAndOther(BaseSecurityModule):
                     endpoint=target_url,
                     module_id=self.metadata.module_id,
                     check_id="CHK-H02",
-                    fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-H02|directory-listing-enabled",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-H02", target_url, "directory-listing-enabled"
+                    ),
                     title="Indexação e Listagem de Diretórios Habilitada no Servidor Web",
                     description="O servidor web permite a navegação e listagem pública de pastas e arquivos locais.",
                     category="Configuração e Controle de Acesso",
@@ -3027,7 +3065,9 @@ class ModuleHMisconfigAndOther(BaseSecurityModule):
                     endpoint=target_url,
                     module_id=self.metadata.module_id,
                     check_id="CHK-H03",
-                    fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-H03|open-redirect-arbitrary",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-H03", target_url, "open-redirect-arbitrary"
+                    ),
                     title="Redirecionamento Aberto para Destino Externo Arbitrário (Open Redirect)",
                     description="A aplicação redireciona usuários para domínios externos sem validação de whitelist.",
                     category="Controle de Acesso e Redirecionamento",
@@ -3085,7 +3125,9 @@ class ModuleHMisconfigAndOther(BaseSecurityModule):
                     endpoint=target_url,
                     module_id=self.metadata.module_id,
                     check_id="CHK-H04",
-                    fingerprint=f"{hostname}|{self.metadata.module_id}|CHK-H04|missing-csrf-token",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-H04", target_url, "missing-csrf-token"
+                    ),
                     title="Formulário POST sem Proteção contra Cross-Site Request Forgery (CSRF)",
                     description="O formulário HTML realiza requisições POST que alteram estado sem token anti-CSRF e sem cookie com atributo SameSite.",
                     category="Configuração e Controle de Acesso",
