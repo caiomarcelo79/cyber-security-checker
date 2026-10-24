@@ -43,7 +43,8 @@ npx vitest run --pool=forks
 npm run build
 ```
 
-| TM-020 | Fase 8: Consolidação, Hardening, Auditoria Auth, E2E e Release v1.0 | 75 pytest, 27 Vitest, ruff, tsc, next build, pip-audit (0 falhas), backup+restore isolado, stack Docker (6 serviços healthy) | PASSOU INTEGRALMENTE — Verificado e validado em 2026-10-23 |
+| `TM-020` | Fase 8: Consolidação, Hardening, Auditoria Auth, E2E e Release v1.0 | 72 pytest, 27 Vitest, ruff, tsc, next build, pip-audit (0 falhas), backup+restore isolado, stack Docker (6 serviços healthy) | PASSOU INTEGRALMENTE — Verificado e validado em 2026-10-23 |
+| `TM-021` | Fase 8: Revisão e Refatoração da Tela de Auditorias (`soc-console.tsx` e `scans-history-panel.tsx`) | Eliminação de requisições 404 (`/scans/null`), eliminação de React Hydration Mismatch #423 via `mounted` guard, reorganização para layout SOC vertical em largura total (formulário responsivo de 4 colunas + monitor de telemetria em tempo real com botão de fecho + painel de histórico de auditorias em largura total com filtro de 6 colunas, `whitespace-nowrap`, larguras mínimas e destaque do scan ativo). 27/27 Vitest, Next.js build standalone 100% OK e fluxo live E2E via proxy validado. | **APROVADO** (100% funcional sem regressões) |
 
 ### Detalhamento das Evidências de TM-020 (Fase 8)
 

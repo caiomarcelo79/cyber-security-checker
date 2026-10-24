@@ -50,6 +50,11 @@ Este arquivo documenta as tarefas concluídas em todas as fases do projeto (FASE
   - Scripts de backup (`scripts/backup_db.ps1`) e restauração verificada (`scripts/restore_db_verify.ps1`) com auditoria das 18 tabelas.
 - [x] **`[T8.4]` Documentação Operacional e de Release v1.0**:
   - `INSTALLATION.md`, `DEPLOYMENT.md`, `OPERATIONS.md`, `SECURITY.md`, `BACKUP_RECOVERY.md`, `CHANGELOG.md` e `RELEASE_READINESS.md` homologando o status **READY**.
+- [x] **`[T8.5]` Refatoração e Homologação da Tela de Auditorias (Console SOC)**:
+  - Reorganização para fluxo vertical SOC em largura total (Formulário responsivo com grid de 4 colunas para parâmetros + Monitor de telemetria em tempo real com botão de fechamento + Tabela de histórico de auditorias em largura total com filtro de 6 colunas, `whitespace-nowrap` e largura mínima por coluna).
+  - Eliminação de requisições 404 para `/api/v1/scans/null/progress` e `/api/v1/scans/null/results` através de guards defensivos e prefetch determinístico com o ID real do scan criado.
+  - Eliminação do erro de hidratação React #423 via `mounted` guard no alternador de temas.
+  - Validação fim a fim contra a stack Docker e proxy da API do Next.js.
 
 ---
 
