@@ -670,7 +670,7 @@ class ScanOrchestrator:
                     safe_fp = hashlib.sha256(safe_fp.encode("utf-8")).hexdigest()[:32]
                 elif not safe_fp:
                     safe_fp = hashlib.sha256(
-                        f"{asset.hostname}|{fnd.module_id}|{fnd.check_id}|{fnd.endpoint}".encode("utf-8")
+                        f"{asset.hostname}|{fnd.module_id}|{fnd.check_id}|{fnd.endpoint}".encode()
                     ).hexdigest()[:32]
 
                 # Verifica se já houve detecção prévia do mesmo fingerprint neste ativo
