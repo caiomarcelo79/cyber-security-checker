@@ -12,12 +12,14 @@ import {
   Building2,
   CheckCircle2,
   Database,
+  FileDown,
   FileSpreadsheet,
   FileText,
   GitCompare,
   Globe,
   KeyRound,
   Layers,
+  Loader2,
   Lock,
   LogOut,
   Moon,
@@ -49,6 +51,7 @@ import {
   cancelScan,
   createAsset,
   createScan,
+  downloadScanPdfFile,
   fetchAssetAuthorizations,
   fetchAssets,
   fetchAuditLogs,
@@ -175,6 +178,7 @@ export function SocConsole() {
   const [selectedScanId, setSelectedScanId] = useState<string | null>(null);
   const [scanFeedback, setScanFeedback] = useState<string | null>(null);
   const [scanSubmitting, setScanSubmitting] = useState<boolean>(false);
+  const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
 
   const [findingsAssetId, setFindingsAssetId] = useState<string>("");
   const [findingsSeverity, setFindingsSeverity] = useState<string>("");
@@ -1101,7 +1105,7 @@ export function SocConsole() {
                     <p>
                       Perfis configurados:{" "}
                       <span className="font-mono text-slate-900 dark:text-slate-200">
-                        {statusQuery.data?.available_profiles_count ?? 6}
+                        {statusQuery.data?.available_profiles_count ?? 7}
                       </span>
                     </p>
                     <p>
@@ -1804,9 +1808,17 @@ export function SocConsole() {
                                 AUTHENTICATED (Sessão Autenticada)
                               </option>
                               <option value="DEEP_ASSESSMENT">
-                                DEEP_ASSESSMENT (Restrito a Lab/Homologação)
+                                DEEP_ASSESSMENT (Homologação / Laboratório)
+                              </option>
+                              <option value="DEEP_PENTEST">
+                                DEEP_PENTEST (Fuzzing Ativo, LFI, SSRF e Injeções — Restrito a Lab/Homologação)
                               </option>
                             </select>
+                            {selectedProfileType === "DEEP_PENTEST" && (
+                              <div className="mt-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded text-xs text-amber-800 dark:text-amber-300">
+                                <strong>Aviso de Escopo:</strong> O perfil DEEP_PENTEST executa verificações ativas profundas (fuzzing multi-parâmetro, detecção de LFI/Path Traversal, injeção de comandos OS e indicadores de SSRF). Este perfil é <strong>estritamente bloqueado em ambientes de Produção</strong> e requer alvo com autorização em Laboratório ou Homologação.
+                              </div>
+                            )}
                           </div>
 
                           <div>
@@ -1937,6 +1949,36 @@ export function SocConsole() {
                                   Cancelar Agora
                                 </Button>
                               )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs gap-1.5"
+                                disabled={isExportingPdf}
+                                onClick={async () => {
+                                  try {
+                                    setIsExportingPdf(true);
+                                    await downloadScanPdfFile(token!, selectedScanId);
+                                  } catch (err) {
+                                    setScanFeedback(
+                                      err instanceof Error ? err.message : "Erro ao exportar PDF da auditoria."
+                                    );
+                                  } finally {
+                                    setIsExportingPdf(false);
+                                  }
+                                }}
+                              >
+                                {isExportingPdf ? (
+                                  <>
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    Gerando PDF...
+                                  </>
+                                ) : (
+                                  <>
+                                    <FileDown className="w-3.5 h-3.5" />
+                                    Extrair PDF
+                                  </>
+                                )}
+                              </Button>
                               <Button
                                 size="sm"
                                 variant="ghost"

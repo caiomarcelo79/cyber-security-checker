@@ -1,5 +1,6 @@
 """Testes dos limites operacionais obrigatórios (ScanExecutionPolicy - TM-004)."""
 
+from security_engine.core.contracts import ScanProfileType
 from security_engine.policies.execution_policy import (
     HARD_CAP_MAX_CONCURRENCY,
     HARD_CAP_MAX_REDIRECTS,
@@ -34,7 +35,10 @@ def test_mandatory_guardrails_cannot_be_disabled_or_exceeded() -> None:
 
 def test_scan_profiles_catalog_completeness() -> None:
     profiles = get_scan_profiles()
-    assert len(profiles) == 6
+    assert len(profiles) == 7
+    deep_pentest = next(p for p in profiles if p.profile_type == ScanProfileType.DEEP_PENTEST)
+    assert deep_pentest.allowed_in_production is False
+    assert len(deep_pentest.enabled_modules) == 8
     for profile in profiles:
         assert profile.what_is_analyzed
         assert profile.what_is_not_analyzed

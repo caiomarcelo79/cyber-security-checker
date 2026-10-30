@@ -23,7 +23,7 @@ def test_system_status_and_real_zero_metrics_on_empty_db(client: TestClient) -> 
 
     assert data["status"] == "UP"
     assert data["registered_modules_count"] == 8
-    assert data["available_profiles_count"] == 6
+    assert data["available_profiles_count"] == 7
     assert data["components"]["database"]["status"] == "UP"
     assert data["components"]["security_engine"]["status"] == "UP"
 

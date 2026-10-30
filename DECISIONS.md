@@ -163,3 +163,50 @@ Este documento registra as decisões arquiteturais e técnicas adotadas no desen
     - Notificações in-app estruturadas por organização com deduplicação temporal configurável para mitigar flood de alertas.
     - O `EmailDeliveryAdapter` suporta SMTP com TLS e modo desenvolvimento local com buffer em memória inspecionável para testes automatizados.
     - O `TemplateService` provê padrões da indústria (OWASP Web, APIs REST, Perímetro) e adaptadores para geração de alertas em formato Slack Block Kit e Discord Rich Embeds.
+
+---
+
+## ADR-013: Verificações Ativas Profundas (DEEP_PENTEST) com Heurísticas Não Destrutivas e Bloqueio Automático em Produção
+
+- **Status**: Aceito (Fase 8)
+- **Contexto**: Para identificar vulnerabilidades que não se manifestam em inspeções puramente passivas ou superficiais (como Path Traversal/LFI, SSRF no alvo, OS Command Injection e SQL Injection cego), o sistema necessita de capacidades de fuzzing ativo contextual e heurísticas profundas, sem violar os limites éticos de não-destrutividade e sem colocar alvos de produção em risco.
+- **Decisão**:
+  - **Criação do Perfil `DEEP_PENTEST`**:
+    - Registrado no catálogo de perfis (`SCAN_PROFILES_CATALOG`) com `allowed_in_production=False` intransponível.
+    - Tentativa de agendamento ou execução de `DEEP_PENTEST` em ativos com `environment=PRODUCTION` é bloqueada na API com código HTTP 422.
+    - Limite operacional estrito de 10 requisições/segundo e timeout máximo de 1800s.
+  - **Heurísticas e Verificações Implementadas**:
+    - `CHK-C04`: Fuzzing contextual em múltiplos parâmetros para quebra de tags HTML (`"><csc_tag_probe>`), atributos e contextos de script com detecção de reflexão direta sem sanitização.
+    - `CHK-D03`: Verificação de injeção de comandos de SO via eco seguro de canário (`echo csc_cmd_canary_491`) e regex de assinaturas de erro de interpretadores shell (`sh`, `bash`, `cmd.exe`).
+    - `CHK-D04`: Verificação heurística de SQLi cego baseado em tempo (injeção controlada de delay `pg_sleep(2)`) com medição diferencial de latência.
+    - `CHK-G01`: Prova ativa de reflexão de cabeçalho `Origin` arbitrário (`https://attacker.csc-test.internal`) com autorização de credenciais (`Access-Control-Allow-Credentials: true`).
+    - `CHK-G04`: Verificação ativa de suporte ao método HTTP TRACE com canário no cabeçalho e confirmação de vulnerabilidade a Cross-Site Tracing (XST).
+    - `CHK-H01`: Wordlist ampliada de arquivos sensíveis (.env, .git, backups SQL, docker-compose, web.config).
+    - `CHK-H03`: Prova ativa de Open Redirect com canário de redirecionamento em múltiplos parâmetros.
+    - `CHK-H05`: Detecção ativa de Path Traversal e Local File Inclusion (LFI) via parâmetros de arquivo com busca por assinaturas do `/etc/passwd` e `win.ini`.
+    - `CHK-H06`: Sondagem de SSRF no alvo com canário `http://canary.csc-ssrf-probe.internal/csc_token` e detecção de erros internos de socket/resolução de rede de backend.
+  - **Sanitização de Evidências e Playbooks de Correção**:
+    - Todas as evidências colhidas são sanitizadas pelo `EvidenceManager` antes de persistência.
+    - 5 novos playbooks determinísticos adicionados ao `RemediationEngine`: `path_traversal_lfi`, `os_command_injection`, `ssrf_target_vulnerability`, `cors_arbitrary_origin`, `http_dangerous_methods`.
+
+---
+
+## ADR-014: Verificações Especializadas, Playbooks Prescritivos de Remediação e Geração Executiva de Relatórios PDF
+
+- **Status**: Aceito (Fase 8)
+- **Contexto**: A auditoria de segurança requer não apenas a identificação determinística de falhas em novas superfícies (como credenciais em query strings, desync HTTP/smuggling, prefixos de cookies, JWTs sem assinatura/expiração e painéis administrativos expostos), mas principalmente a entrega de medidas protetivas e playbooks prescritivos com código real multi-stack para permitir a correção rápida e eficaz por equipes de desenvolvimento e SecOps. Além disso, os times necessitam extrair relatórios executivos e técnicos em formato PDF que destaquem tanto as vulnerabilidades encontradas com evidências sanitizadas quanto diagnósticos operacionais de infraestrutura para verificações que falharam (`EXECUTION_ERROR`).
+- **Decisão**:
+  - **5 Novas Verificações Especializadas Não Destrutivas**:
+    - `CHK-B04`: Detecção de credenciais sensíveis (senhas, api_keys, tokens) expostas em Query String ou formulários HTML utilizando método GET inseguro.
+    - `CHK-E03`: Verificação de ausência de prefixos de isolamento seguro de cookies (`__Host-` e `__Secure-`) em cookies de autenticação e sessão.
+    - `CHK-F04`: Verificação preventiva (desync canary) contra HTTP Request Smuggling enviando cabeçalhos conflitantes `Content-Length` e `Transfer-Encoding` sem impacto destrutivo no alvo.
+    - `CHK-G05`: Auditoria de tokens JWT detectando algoritmo nulo (`alg: none`), ausência de assinatura e ausência de declaração de expiração (`exp`).
+    - `CHK-H07`: Detecção de interfaces administrativas, consoles de debug e métricas expostas sem autenticação (`/actuator`, `/swagger-ui.html`, `/_profiler`, `/admin`).
+  - **Catálogo de Medidas Protetivas (`REMEDIATION_CATALOG`)**:
+    - 5 novos playbooks com explicação de causa-raiz e perigo técnico (`why_it_is_dangerous`), método de detecção (`how_it_was_detected`), passo a passo de correção, validação pós-correção, referências CWE/OWASP e exemplos de código funcionais para múltiplos ecossistemas: Python (FastAPI/Django), Node.js (Express), Java (Spring Boot) e Servidores Web (Nginx/Caddy). Totalizando 29 playbooks no catálogo.
+  - **Motor de Renderização PDF (`ReportEngine._render_pdf`) com ReportLab**:
+    - Geração de PDF corporativo de alto contraste contendo: cabeçalho com metadados e score de risco, tabela de telemetria do alvo auditado, matriz de severidades, seção dedicada para falhas de execução (`EXECUTION_ERROR`) com diagnóstico de conectividade/timeout/WAF e orientações de infraestrutura, caixas de evidências técnicas sanitizadas e playbooks de remediação estruturados com código em blocos `Preformatted` monoespaçados.
+    - Mecanismo anti-overflow em tabelas e flowables do ReportLab evitando erros de altura máxima de página (`LayoutError`).
+  - **Endpoint e Interface SOC de Extração de PDF**:
+    - Rota `GET /api/v1/scans/{scan_id}/export-pdf` com isolamento multi-tenant, gravação em trilha de auditoria (`AuditLog`) e download direto (`attachment; filename=...`).
+    - Botões integrados na tabela de histórico de auditorias (`scans-history-panel.tsx`) e no monitor de execução (`soc-console.tsx`) com estado de carregamento assíncrono.

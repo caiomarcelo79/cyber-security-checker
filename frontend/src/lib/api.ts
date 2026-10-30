@@ -1825,3 +1825,32 @@ export async function seedTemplates(
   });
   return parseOrThrow(res, "Falha ao inicializar templates padrões.");
 }
+
+export async function exportScanPdf(
+  token: string,
+  scanId: string
+): Promise<Blob> {
+  const res = await fetch(`${API_BASE_URL}/scans/${encodeURIComponent(scanId)}/export-pdf`, {
+    headers: authHeaders(token),
+    credentials: "include",
+  });
+  if (!res.ok) {
+    throw new ApiError("Falha ao exportar PDF da auditoria.", res.status);
+  }
+  return res.blob();
+}
+
+export async function downloadScanPdfFile(
+  token: string,
+  scanId: string
+): Promise<void> {
+  const blob = await exportScanPdf(token, scanId);
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `csc-auditoria-${scanId.slice(0, 8)}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+}

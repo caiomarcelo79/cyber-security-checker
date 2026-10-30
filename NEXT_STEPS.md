@@ -55,6 +55,27 @@ Este arquivo documenta as tarefas concluídas em todas as fases do projeto (FASE
   - Eliminação de requisições 404 para `/api/v1/scans/null/progress` e `/api/v1/scans/null/results` através de guards defensivos e prefetch determinístico com o ID real do scan criado.
   - Eliminação do erro de hidratação React #423 via `mounted` guard no alternador de temas.
   - Validação fim a fim contra a stack Docker e proxy da API do Next.js.
+- [x] **`[T8.6]` Verificações de Segurança Agressivas e Perfil DEEP_PENTEST**:
+  - Implementação de `CHK-C04` (Fuzzing Ativo Contextual XSS em múltiplos parâmetros).
+  - Implementação de `CHK-D03` (Heurísticas não destrutivas de Injeção de Comandos de SO).
+  - Implementação de `CHK-D04` (Heurística de SQL Injection Cego baseado em tempo com medição de delay diferencial).
+  - Implementação de `CHK-G01` (Prova ativa de reflexão arbitrária de cabeçalho Origin em CORS com credenciais).
+  - Implementação de `CHK-G04` (Verificação ativa de métodos HTTP perigosos TRACE e Cross-Site Tracing XST).
+  - Implementação de `CHK-H01` ampliado (Wordlist de 15 caminhos sensíveis de sistema e ambiente).
+  - Implementação de `CHK-H03` ampliado (Prova ativa de Open Redirect com canários de redirecionamento).
+  - Implementação de `CHK-H05` (Detecção ativa de Path Traversal e Local File Inclusion LFI).
+  - Implementação de `CHK-H06` (Indicadores de Server-Side Request Forgery SSRF no alvo via canários e erros de rede).
+  - Cadastro do perfil `DEEP_PENTEST` no catálogo com bloqueio obrigatório contra Produção (`allowed_in_production=False` e HTTP 422 para `PRODUCTION`).
+  - 5 novos playbooks determinísticos de remediação estruturada no `RemediationEngine`.
+  - Opção no console SOC com banner de aviso de escopo.
+  - 33 testes no `security-engine` aprovados, 47 no backend aprovados e 27 no frontend aprovados.
+- [x] **`[T8.7]` Verificações Especializadas, Medidas Protetivas Prescritivas e Exportação de PDF com Diagnósticos**:
+  - Adição de 5 novas verificações de segurança (`CHK-B04`, `CHK-E03`, `CHK-F04`, `CHK-G05`, `CHK-H07`).
+  - Adição de 5 playbooks prescritivos ao `REMEDIATION_CATALOG` com perigo, diagnóstico, passo a passo, código multi-stack (Python, Node.js, Java, Nginx/Caddy) e referências CWE/OWASP.
+  - Reestruturação do motor ReportLab (`_render_pdf`) gerando relatórios PDF completos com telemetria, matriz de severidades, seção detalhada de Erros de Execução (`EXECUTION_ERROR`) com orientações de diagnóstico de infraestrutura, caixas de evidências sanitizadas e playbooks de remediação.
+  - Rota dedicada `GET /api/v1/scans/{scan_id}/export-pdf` com isolamento multi-tenant, auditoria e geração síncrona/assíncrona.
+  - Botões de extração PDF na tabela de auditorias (`scans-history-panel.tsx`) e no monitor de auditoria (`soc-console.tsx`).
+  - 39 testes no `security-engine` aprovados, 49 no backend aprovados, 27 no frontend aprovados.
 
 ---
 

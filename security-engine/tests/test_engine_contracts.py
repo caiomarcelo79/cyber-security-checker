@@ -67,7 +67,7 @@ def test_module_a_and_e_real_snapshot_inspection() -> None:
         status_code=200,
         headers=insecure_headers,
     )
-    assert len(res_e.findings) == 1
+    assert len(res_e.findings) == 2  # CHK-E01 (flags) e CHK-E03 (prefixo de isolamento)
     cookie_finding = res_e.findings[0]
     assert "secret1234567890" not in (cookie_finding.evidence.observed_value or "")
     assert cookie_finding.remediation.what_was_identified

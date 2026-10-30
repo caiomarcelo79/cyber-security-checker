@@ -161,7 +161,7 @@ def test_http_to_https_redirect_and_tls_valid_cert_inspection() -> None:
                 self.send_header("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
                 self.send_header(
                     "Set-Cookie",
-                    "csc_sid=top_secret_session_value_998877; Secure; HttpOnly; SameSite=Strict; Path=/",
+                    "__Host-csc_sid=top_secret_session_value_998877; Secure; HttpOnly; SameSite=Strict; Path=/",
                 )
                 self.end_headers()
                 self.wfile.write(b"<html><body> Portal Seguro </body></html>")

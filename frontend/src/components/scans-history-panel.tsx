@@ -2,10 +2,11 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { GitCompare } from "lucide-react";
+import { FileDown, GitCompare, Loader2 } from "lucide-react";
 
 import {
   type AssetResponse,
+  downloadScanPdfFile,
   fetchScanEvents,
   fetchScansPage,
   type ScanFilters,
@@ -96,6 +97,7 @@ export function ScansHistoryPanel({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
   const [selectedForComparison, setSelectedForComparison] = useState<string[]>([]);
+  const [downloadingScanId, setDownloadingScanId] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(filters.search), 350);
@@ -275,6 +277,29 @@ export function ScansHistoryPanel({
                           onClick={() => onSelect(s.id)}
                         >
                           Detalhes
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          title="Extrair Relatório em PDF com Medidas Protetivas"
+                          disabled={downloadingScanId === s.id}
+                          onClick={async () => {
+                            try {
+                              setDownloadingScanId(s.id);
+                              await downloadScanPdfFile(token, s.id);
+                            } catch (err) {
+                              alert("Erro ao extrair PDF da auditoria: " + errorMessage(err));
+                            } finally {
+                              setDownloadingScanId(null);
+                            }
+                          }}
+                        >
+                          {downloadingScanId === s.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <FileDown className="h-3.5 w-3.5 mr-1" />
+                          )}
+                          PDF
                         </Button>
                         {active && allowCancel && (
                           <Button size="sm" variant="outline" onClick={() => onCancel(s.id)}>

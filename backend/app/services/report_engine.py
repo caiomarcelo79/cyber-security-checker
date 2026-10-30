@@ -762,14 +762,14 @@ class ReportEngine:
 
     @classmethod
     def _render_pdf(cls, context: dict[str, Any], dest: Path) -> None:
-        """Gera PDF profissional usando ReportLab (Platypus flowables)."""
+        """Gera PDF profissional detalhado com escopo, falhas de execução, evidências e medidas protetivas."""
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import letter
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.platypus import (
             HRFlowable,
-            KeepTogether,
             Paragraph,
+            Preformatted,
             SimpleDocTemplate,
             Spacer,
             Table,
@@ -789,64 +789,137 @@ class ReportEngine:
         title_style = ParagraphStyle(
             "ReportTitle",
             parent=styles["Heading1"],
-            fontSize=18,
-            leading=22,
+            fontName="Helvetica-Bold",
+            fontSize=16,
+            leading=20,
             textColor=colors.HexColor("#0F172A"),
-            spaceAfter=6,
+            spaceAfter=4,
         )
         meta_style = ParagraphStyle(
             "ReportMeta",
             parent=styles["Normal"],
-            fontSize=9,
+            fontName="Helvetica",
+            fontSize=8.5,
             leading=12,
             textColor=colors.HexColor("#475569"),
-            spaceAfter=12,
+            spaceAfter=8,
         )
         heading2_style = ParagraphStyle(
             "ReportH2",
             parent=styles["Heading2"],
-            fontSize=13,
-            leading=16,
-            textColor=colors.HexColor("#1E293B"),
-            spaceBefore=12,
-            spaceAfter=8,
+            fontName="Helvetica-Bold",
+            fontSize=11.5,
+            leading=15,
+            textColor=colors.HexColor("#0F172A"),
+            spaceBefore=10,
+            spaceAfter=6,
         )
         body_style = ParagraphStyle(
             "ReportBody",
             parent=styles["Normal"],
-            fontSize=9,
-            leading=12,
+            fontName="Helvetica",
+            fontSize=8.5,
+            leading=11.5,
             textColor=colors.HexColor("#334155"),
+        )
+        body_bold = ParagraphStyle(
+            "ReportBodyBold",
+            parent=body_style,
+            fontName="Helvetica-Bold",
+            textColor=colors.HexColor("#0F172A"),
         )
         code_style = ParagraphStyle(
             "ReportCode",
             parent=styles["Normal"],
             fontName="Courier",
-            fontSize=8,
-            leading=10,
+            fontSize=7.5,
+            leading=9.5,
             textColor=colors.HexColor("#0F172A"),
         )
 
+        def _wrap_code(code_str: str, max_chars: int = 76) -> str:
+            cleaned = code_str.replace("\t", "    ")
+            res_lines = []
+            for line in cleaned.splitlines():
+                if len(line) <= max_chars:
+                    res_lines.append(line)
+                else:
+                    curr = line
+                    while len(curr) > max_chars:
+                        res_lines.append(curr[:max_chars])
+                        curr = "  " + curr[max_chars:]
+                    res_lines.append(curr)
+            return "\n".join(res_lines)
+
         story: list[Any] = []
 
-        # Título e cabeçalho
+        # 1. Cabeçalho Principal
         title_text = html.escape(context.get("title", "Relatório de Segurança"))
         org_name = html.escape(context.get("organization_name", "Organização"))
-        rep_type = html.escape(context.get("report_type", "EXECUTIVE"))
+        rep_type = html.escape(context.get("report_type", "TECHNICAL"))
         created_at = html.escape(context.get("created_at", ""))
 
         story.append(Paragraph(title_text, title_style))
         story.append(
             Paragraph(
-                f"<b>Organização:</b> {org_name} &nbsp;|&nbsp; <b>Tipo:</b> {rep_type} &nbsp;|&nbsp; <b>Data:</b> {created_at}",
+                f"<b>Organização:</b> {org_name} &nbsp;|&nbsp; <b>Tipo:</b> {rep_type} &nbsp;|&nbsp; <b>Data de Emissão:</b> {created_at}",
                 meta_style,
             )
         )
         story.append(
-            HRFlowable(width="100%", thickness=1, color=colors.HexColor("#CBD5E1"), spaceAfter=12)
+            HRFlowable(width="100%", thickness=1, color=colors.HexColor("#CBD5E1"), spaceAfter=10)
         )
 
-        # Tabela de Indicadores / Severidades
+        # 2. Metadados do Alvo Auditado e da Auditoria
+        assets = context.get("assets", [])
+        scans = context.get("scans", [])
+        target_name = assets[0].get("name", "N/A") if assets else "N/A"
+        target_url = assets[0].get("target_url", "N/A") if assets else "N/A"
+        target_env = assets[0].get("environment", "N/A") if assets else "N/A"
+        target_type = assets[0].get("asset_type", "N/A") if assets else "N/A"
+
+        scan_id = scans[0].get("id", "N/A") if scans else "Geral"
+        scan_profile = scans[0].get("profile_type", "N/A") if scans else "N/A"
+        scan_status = scans[0].get("status", "N/A") if scans else "N/A"
+        scan_total_checks = str(scans[0].get("total_checks", 0)) if scans else str(context.get("summary", {}).get("total_checks_run", 0))
+
+        scope_meta_table = [
+            [
+                Paragraph("<b>Ativo Auditado:</b>", body_style),
+                Paragraph(html.escape(target_name), body_style),
+                Paragraph("<b>ID da Auditoria:</b>", body_style),
+                Paragraph(html.escape(scan_id[:13] + "..." if len(scan_id) > 13 else scan_id), code_style),
+            ],
+            [
+                Paragraph("<b>URL / Alvo:</b>", body_style),
+                Paragraph(html.escape(target_url), code_style),
+                Paragraph("<b>Perfil do Scan:</b>", body_style),
+                Paragraph(html.escape(scan_profile), body_style),
+            ],
+            [
+                Paragraph("<b>Ambiente:</b>", body_style),
+                Paragraph(f"{html.escape(target_env)} ({html.escape(target_type)})", body_style),
+                Paragraph("<b>Status / Checagens:</b>", body_style),
+                Paragraph(f"{html.escape(scan_status)} ({scan_total_checks} checagens)", body_style),
+            ],
+        ]
+        t_scope = Table(scope_meta_table, colWidths=[90, 180, 100, 170])
+        t_scope.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F8FAFC")),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ]
+            )
+        )
+        story.append(t_scope)
+        story.append(Spacer(1, 10))
+
+        # 3. Matriz Executiva de Severidade
         summary = context.get("summary", {})
         sev_counts = summary.get("severity_counts", {})
         metrics_data = [
@@ -860,86 +933,123 @@ class ReportEngine:
                 str(summary.get("total_findings", 0)),
             ],
         ]
-        t_metrics = Table(metrics_data, colWidths=[80, 80, 80, 80, 80, 90])
+        t_metrics = Table(metrics_data, colWidths=[90, 90, 90, 90, 90, 90])
         t_metrics.setStyle(
             TableStyle(
                 [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F1F5F9")),
-                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#FFFFFF")),
                     ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("FONTSIZE", (0, 0), (-1, 0), 9),
-                    ("FONTSIZE", (0, 1), (-1, 1), 14),
+                    ("FONTSIZE", (0, 0), (-1, 0), 8.5),
+                    ("FONTSIZE", (0, 1), (-1, 1), 13),
                     ("TEXTCOLOR", (0, 1), (0, 1), colors.HexColor(COLOR_CRITICAL)),
                     ("TEXTCOLOR", (1, 1), (1, 1), colors.HexColor(COLOR_HIGH)),
                     ("TEXTCOLOR", (2, 1), (2, 1), colors.HexColor(COLOR_MEDIUM)),
                     ("TEXTCOLOR", (3, 1), (3, 1), colors.HexColor(COLOR_LOW)),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-                    ("TOPPADDING", (0, 0), (-1, -1), 6),
+                    ("TEXTCOLOR", (4, 1), (4, 1), colors.HexColor(COLOR_INFO)),
+                    ("TEXTCOLOR", (5, 1), (5, 1), colors.HexColor("#0F172A")),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
                     ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
                 ]
             )
         )
         story.append(t_metrics)
-        story.append(Spacer(1, 14))
+        story.append(Spacer(1, 10))
 
-        # Seção Comparativa
-        comparison = context.get("comparison")
-        if comparison:
-            story.append(Paragraph("Análise Comparativa entre Auditorias", heading2_style))
-            c_sum = comparison.get("comparison_summary", {})
-            comp_table_data = [
-                ["Novas Falhas", "Persistentes", "Correções Confirmadas", "Diferenças Cobertura"],
-                [
-                    str(c_sum.get("new_count", 0)),
-                    str(c_sum.get("persistent_count", 0)),
-                    str(c_sum.get("confirmed_remediated_count", 0)),
-                    str(c_sum.get("not_verified_coverage_count", 0)),
-                ],
-            ]
-            t_comp = Table(comp_table_data, colWidths=[120, 120, 130, 120])
-            t_comp.setStyle(
+        # 4. Falhas de Execução e Lacunas de Cobertura (EXECUTION_ERROR)
+        checks = context.get("checks", [])
+        exec_errors = [c for c in checks if c.get("status") == "EXECUTION_ERROR"]
+        if exec_errors:
+            story.append(
+                Paragraph(
+                    "Avisos Operacionais & Falhas Técnicas de Execução (EXECUTION_ERROR)",
+                    heading2_style,
+                )
+            )
+            warn_p = Paragraph(
+                "<b>Atenção de Infraestrutura / SOC:</b> As verificações abaixo falharam operacionalmente "
+                "(timeout de rede, recusa de socket ou erro DNS/TLS). <i>Pelas diretrizes AGENTS.md, um teste com erro de execução "
+                "jamais é classificado como aprovado.</i> Verifique as recomendações diagnósticas abaixo:",
+                body_style,
+            )
+            story.append(warn_p)
+            story.append(Spacer(1, 6))
+
+            err_table_data = [["Check ID", "Módulo / Teste", "Resumo Operacional", "Ação Diagnóstica"]]
+            for ec in exec_errors[:15]:
+                err_table_data.append([
+                    Paragraph(html.escape(ec.get("check_id", "ERR")), code_style),
+                    Paragraph(html.escape(ec.get("title", "Teste de Segurança")), body_style),
+                    Paragraph(html.escape(ec.get("summary", "Erro operacional")), body_style),
+                    Paragraph(
+                        "Verificar se o alvo está online, validar regras de WAF/ACL e certificar que a cadeia TLS intermediária está completa.",
+                        body_style,
+                    ),
+                ])
+            t_errors = Table(err_table_data, colWidths=[65, 135, 170, 170])
+            t_errors.setStyle(
                 TableStyle(
                     [
-                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E2E8F0")),
-                        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#FEE2E2")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#991B1B")),
                         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                        ("FONTSIZE", (0, 1), (-1, 1), 12),
-                        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
-                        ("TOPPADDING", (0, 0), (-1, -1), 5),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                        ("FONTSIZE", (0, 0), (-1, 0), 8),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#FCA5A5")),
+                        ("TOPPADDING", (0, 0), (-1, -1), 4),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
                     ]
                 )
             )
-            story.append(t_comp)
-            story.append(Spacer(1, 14))
+            story.append(t_errors)
+            story.append(Spacer(1, 10))
 
-        # Seção de Descobertas
+        # 5. Inventário de Vulnerabilidades e Medidas Protetivas
         findings = context.get("findings", [])
         story.append(
-            Paragraph(f"Inventário de Vulnerabilidades Identificadas ({len(findings)})", heading2_style)
+            Paragraph(
+                f"Inventário de Vulnerabilidades e Medidas Protetivas ({len(findings)})",
+                heading2_style,
+            )
         )
 
         if not findings:
-            story.append(
-                Paragraph(
-                    "Nenhuma vulnerabilidade foi identificada para o escopo desta auditoria.",
-                    body_style,
+            empty_table = Table(
+                [[
+                    Paragraph(
+                        "<b>Parabéns!</b> Nenhuma vulnerabilidade ou indício de risco técnico foi identificado para o escopo e módulos executados nesta auditoria.",
+                        body_style,
+                    )
+                ]],
+                colWidths=[540],
+            )
+            empty_table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#ECFDF5")),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#A7F3D0")),
+                        ("TOPPADDING", (0, 0), (-1, -1), 10),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                    ]
                 )
             )
+            story.append(empty_table)
         else:
-            for fnd in findings[:40]:  # Limite de segurança de volume por PDF
+            for idx, fnd in enumerate(findings[:50], start=1):
                 sev = fnd.get("severity", "INFO")
                 title = html.escape(fnd.get("title", ""))
                 endpoint = html.escape(fnd.get("affected_endpoint", ""))
+                category = html.escape(fnd.get("category", "Segurança"))
                 impact = html.escape(fnd.get("impact", ""))
+                confidence = html.escape(fnd.get("confidence", "CERTAIN"))
                 status_txt = html.escape(fnd.get("treatment_status", "OPEN"))
+                evidence = fnd.get("evidence") or {}
                 rem_data = fnd.get("remediation") or {}
-                rem_text = html.escape(
-                    rem_data.get("explanation")
-                    or rem_data.get("general_guidance")
-                    or "Aplicar correção conforme recomendações de segurança."
-                )
 
                 sev_color = colors.HexColor(
                     COLOR_CRITICAL
@@ -953,33 +1063,160 @@ class ReportEngine:
                     else COLOR_INFO
                 )
 
-                f_content = [
-                    Paragraph(
-                        f"<b>[{sev}] {title}</b> &nbsp;(Status: {status_txt})",
-                        ParagraphStyle(
-                            "FTitle", parent=body_style, textColor=sev_color, fontSize=10, leading=13
-                        ),
-                    ),
-                    Paragraph(f"<b>Endpoint:</b> {endpoint}", code_style),
-                    Paragraph(f"<b>Impacto:</b> {impact}", body_style),
-                    Paragraph(f"<b>Recomendação:</b> {rem_text}", body_style),
-                    Spacer(1, 8),
-                ]
-                story.append(KeepTogether(f_content))
+                card_elements: list[Any] = []
 
-        # Rodapé / Metodologia
-        story.append(Spacer(1, 16))
+                # Título da Falha com Badge
+                header_p = Paragraph(
+                    f"<b>#{idx}. [{sev}] {title}</b> &nbsp;&nbsp;<font size=7.5 color='#64748B'>(Status: {status_txt} | Confiança: {confidence})</font>",
+                    ParagraphStyle("FTitle", parent=body_style, textColor=sev_color, fontSize=9.5, leading=12.5),
+                )
+                card_elements.append(header_p)
+                card_elements.append(
+                    Paragraph(f"<b>Categoria:</b> {category} &nbsp;|&nbsp; <b>Endpoint:</b> {endpoint}", body_style)
+                )
+
+                # Caixa de Evidência Sanitizada
+                observed = str(evidence.get("observed_value") or "")
+                expected = str(evidence.get("expected_baseline") or "")
+                req_url = str(evidence.get("request_url") or endpoint)
+
+                evidence_rows = []
+                if observed:
+                    evidence_rows.append([
+                        Paragraph("<b>Evidência Observada:</b>", body_style),
+                        Paragraph(html.escape(observed), code_style),
+                    ])
+                if expected:
+                    evidence_rows.append([
+                        Paragraph("<b>Linha de Base Segura:</b>", body_style),
+                        Paragraph(html.escape(expected), body_style),
+                    ])
+                if req_url:
+                    evidence_rows.append([
+                        Paragraph("<b>URL Auditada:</b>", body_style),
+                        Paragraph(html.escape(req_url), code_style),
+                    ])
+                if impact:
+                    evidence_rows.append([
+                        Paragraph("<b>Impacto Técnico:</b>", body_style),
+                        Paragraph(html.escape(impact), body_style),
+                    ])
+
+                if evidence_rows:
+                    t_ev = Table(evidence_rows, colWidths=[120, 410])
+                    t_ev.setStyle(
+                        TableStyle(
+                            [
+                                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F8FAFC")),
+                                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+                                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                                ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                            ]
+                        )
+                    )
+                    card_elements.append(Spacer(1, 3))
+                    card_elements.append(t_ev)
+
+                # Medidas Protetivas (Playbook de Correção Prescritivo)
+                what_id = rem_data.get("what_was_identified") or rem_data.get("explanation")
+                why_danger = rem_data.get("why_it_is_dangerous")
+                how_detected = rem_data.get("how_it_was_detected")
+                how_to_fix = rem_data.get("how_to_fix") or rem_data.get("general_guidance")
+                how_to_validate = rem_data.get("how_to_validate")
+                secure_examples = rem_data.get("secure_examples") or []
+                references = rem_data.get("references") or []
+
+                card_elements.append(Spacer(1, 4))
+                card_elements.append(
+                    Paragraph("<b>Medidas Protetivas & Plano de Correção:</b>", body_bold)
+                )
+
+                if what_id:
+                    card_elements.append(
+                        Paragraph(f"• <b>Diagnóstico:</b> {html.escape(what_id)}", body_style)
+                    )
+                if why_danger:
+                    card_elements.append(
+                        Paragraph(f"• <b>Causa Raiz & Perigo:</b> {html.escape(why_danger)}", body_style)
+                    )
+                if how_detected:
+                    card_elements.append(
+                        Paragraph(f"• <b>Metodologia de Detecção:</b> {html.escape(how_detected)}", body_style)
+                    )
+                if how_to_fix:
+                    card_elements.append(
+                        Paragraph(f"• <b>Instruções de Correção:</b> {html.escape(how_to_fix)}", body_style)
+                    )
+
+                # Exemplos de Código Seguro Multi-Stack
+                if secure_examples and isinstance(secure_examples, list):
+                    for ex in secure_examples[:3]:
+                        tech = ex.get("technology") or "Configuração Segura"
+                        code_content = ex.get("code") or ""
+                        ex_explanation = ex.get("explanation") or ""
+
+                        card_elements.append(Spacer(1, 3))
+                        card_elements.append(
+                            Paragraph(f"<b>Exemplo Seguro [{html.escape(tech)}]:</b>", body_bold)
+                        )
+                        if code_content:
+                            formatted_code = _wrap_code(code_content)
+                            pre_code = Preformatted(formatted_code, code_style)
+                            t_code = Table([[pre_code]], colWidths=[530])
+                            t_code.setStyle(
+                                TableStyle(
+                                    [
+                                        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F1F5F9")),
+                                        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+                                        ("TOPPADDING", (0, 0), (-1, -1), 4),
+                                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                                        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                                        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                                    ]
+                                )
+                            )
+                            card_elements.append(t_code)
+                        if ex_explanation:
+                            card_elements.append(
+                                Paragraph(f"<i>Explicação:</i> {html.escape(ex_explanation)}", body_style)
+                            )
+
+                if how_to_validate:
+                    card_elements.append(Spacer(1, 2))
+                    card_elements.append(
+                        Paragraph(f"• <b>Procedimento de Validação:</b> {html.escape(how_to_validate)}", body_style)
+                    )
+
+                if references:
+                    ref_str = ", ".join(references)
+                    card_elements.append(
+                        Paragraph(f"• <b>Referências Normativas:</b> {html.escape(ref_str)}", body_style)
+                    )
+
+                card_elements.append(Spacer(1, 6))
+                card_elements.append(
+                    HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#E2E8F0"), spaceAfter=8)
+                )
+
+                # Agrupamos cabeçalho e evidência para não quebrar feio, permitindo que o restante flua
+                story.extend(card_elements)
+
+        # 6. Rodapé / Metodologia SOC
+        story.append(Spacer(1, 10))
         story.append(
-            HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#CBD5E1"), spaceAfter=8)
+            HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#CBD5E1"), spaceAfter=6)
         )
         story.append(
             Paragraph(
-                "Relatório gerado pelo Cyber-Security-Checker. Metodologia: OWASP Top 10 / WSTG. "
-                "Resultados válidos para a janela de teste auditada.",
+                "Cyber-Security-Checker — Plataforma Defensiva de Auditoria de Segurança e Gerenciamento de Vulnerabilidades.<br/>"
+                "Em conformidade com OWASP Top 10, OWASP ASVS 5.0, OWASP WSTG e MITRE CWE. Documento confidencial para uso exclusivo da organização.",
                 ParagraphStyle(
                     "RFooter",
                     parent=body_style,
                     fontSize=7,
+                    leading=9,
                     textColor=colors.HexColor("#64748B"),
                     alignment=1,
                 ),

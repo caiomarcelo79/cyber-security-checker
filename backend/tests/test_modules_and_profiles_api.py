@@ -13,8 +13,9 @@ def test_modules_and_profiles_catalog_endpoints(client: TestClient) -> None:
     prof_resp = client.get("/api/v1/profiles")
     assert prof_resp.status_code == 200
     profiles = prof_resp.json()
-    assert len(profiles) == 6
+    assert len(profiles) == 7
     assert any(p["profile_type"] == "QUICK" for p in profiles)
+    assert any(p["profile_type"] == "DEEP_PENTEST" for p in profiles)
 
     rem_resp = client.get("/api/v1/remediation")
     assert rem_resp.status_code == 200

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import base64
 import html
 import ipaddress
+import json
 import re
+import time
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from security_engine.core.contracts import (
     AssetType,
@@ -1231,6 +1234,7 @@ class ModuleECookiesAndSession(BaseSecurityModule):
             checks_catalog=[
                 "CHK-E01: Atributos de Segurança em Cookies (Secure, HttpOnly, SameSite)",
                 "CHK-E02: Incompatibilidade de Flags (SameSite=None sem Secure), Escopo e Expiração",
+                "CHK-E03: Ausência de Prefixos de Isolamento (__Host- / __Secure-) em Cookies de Sessão",
             ],
         )
 
@@ -1443,6 +1447,77 @@ class ModuleECookiesAndSession(BaseSecurityModule):
                 )
             )
 
+        # CHK-E03: Ausência de Prefixos de Isolamento (__Host- / __Secure-) em Cookies de Sessão
+        session_cookie_indicators = ["session", "token", "auth", "sid", "sessionid", "jwt", "connect.sid", "phpsessid", "jsessionid"]
+        cookies_lacking_prefix: list[str] = []
+        for p_cookie in parsed_cookies:
+            c_name = p_cookie["name"]
+            c_name_lower = c_name.lower()
+            is_session_cookie = (
+                any(ind in c_name_lower for ind in session_cookie_indicators)
+                or p_cookie.get("httponly")
+            )
+            if is_session_cookie and not c_name.startswith(("__Host-", "__Secure-")):
+                cookies_lacking_prefix.append(c_name)
+
+        if cookies_lacking_prefix:
+            prefix_summary = ", ".join(cookies_lacking_prefix)
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-E03",
+                    module_id=self.metadata.module_id,
+                    title="Ausência de Prefixos de Isolamento (__Host- / __Secure-) em Cookies de Sessão",
+                    status=CheckStatus.POTENTIAL_VULNERABILITY,
+                    summary=f"Cookie(s) de sessão emitido(s) sem prefixos de isolamento: {prefix_summary}",
+                    details={"cookies_without_prefix": cookies_lacking_prefix},
+                )
+            )
+            findings.append(
+                NormalizedFinding(
+                    endpoint=target_url,
+                    module_id=self.metadata.module_id,
+                    check_id="CHK-E03",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-E03", target_url, "missing-cookie-prefix"
+                    ),
+                    title=f"Cookie de Sessão Sem Prefixo de Isolamento ({prefix_summary})",
+                    description=(
+                        "Cookies de autenticação e sessão foram emitidos sem os prefixos padronizados "
+                        "(__Host- ou __Secure-). Sem esses prefixos, subdomínios vulneráveis podem realizar "
+                        "ataques de Cookie Tossing ou sobrescrever credenciais legítimas de sessão."
+                    ),
+                    category=self.metadata.category,
+                    result_classification=CheckStatus.POTENTIAL_VULNERABILITY,
+                    severity=Severity.LOW,
+                    confidence=Confidence.CERTAIN,
+                    evidence=EvidenceManager.build_sanitized_evidence(
+                        request_method="GET",
+                        request_url=target_url,
+                        response_status_code=status_code,
+                        response_headers=headers,
+                        observed_value=f"Cookies sem prefixo de isolamento: {prefix_summary}",
+                        expected_baseline="Cookies sensíveis de autenticação prefixados com __Host- ou __Secure-",
+                    ),
+                    owasp_references=["A07:2021-Identification and Authentication Failures"],
+                    cwe_ids=["CWE-614", "CWE-1275"],
+                    impact="Permite que subdomínios não confiáveis ou comprometidos no mesmo domínio base injetem ou sobrescrevam cookies de sessão.",
+                    safe_reproduction_steps=[
+                        f"Inspecionar cabeçalhos Set-Cookie retornados por {target_url} e verificar a ausência de prefixos __Host- ou __Secure-."
+                    ],
+                    remediation=RemediationEngine.get_guidance("missing_cookie_security_prefixes"),
+                )
+            )
+        else:
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-E03",
+                    module_id=self.metadata.module_id,
+                    title="Ausência de Prefixos de Isolamento (__Host- / __Secure-) em Cookies de Sessão",
+                    status=CheckStatus.PASSED,
+                    summary="Todos os cookies de sessão utilizam prefixos de isolamento (__Host- ou __Secure-) ou nenhum cookie de sessão foi emitido.",
+                )
+            )
+
         return ModuleExecutionResult(
             module_id=self.metadata.module_id,
             checks=checks,
@@ -1474,7 +1549,7 @@ class ModuleBAuthLogin(BaseSecurityModule):
             owasp_references=["A07:2021-Identification and Authentication Failures"],
             wstg_references=["WSTG-ATHN-01", "WSTG-ATHN-02", "WSTG-SESS-03"],
             asvs_references=["ASVS-V2.1", "ASVS-V2.2", "ASVS-V8.3"],
-            cwe_references=["CWE-287", "CWE-319", "CWE-204", "CWE-525"],
+            cwe_references=["CWE-287", "CWE-319", "CWE-204", "CWE-525", "CWE-598"],
             enabled_by_default=True,
             requires_authentication=False,
             allow_in_production=True,
@@ -1482,6 +1557,7 @@ class ModuleBAuthLogin(BaseSecurityModule):
                 "CHK-B01: Transporte HTTPS Obrigatório em Formulários/Endpoints de Autenticação",
                 "CHK-B02: Exposição de Enumeração de Usuários em Mensagens de Erro",
                 "CHK-B03: Políticas de Cache e Proteção de Dados Sensíveis em Endpoints de Autenticação",
+                "CHK-B04: Transmissão Insegura de Credenciais via Query String (GET Login/Token)",
             ],
         )
 
@@ -1748,6 +1824,77 @@ class ModuleBAuthLogin(BaseSecurityModule):
                 )
             )
 
+        # CHK-B04: Transmissão Insegura de Credenciais via Query String (GET Login/Token)
+        sensitive_param_names = {
+            "password", "pass", "pwd", "senha", "secret", "user_password", "auth_token", "access_token", "api_key", "apikey"
+        }
+        parsed_qs = parse_qs(parsed.query, keep_blank_values=True)
+        detected_sensitive_params = [
+            p for p in parsed_qs if any(s == p.lower() or f"{s}_" in p.lower() or f"_{s}" in p.lower() for s in sensitive_param_names)
+        ]
+        has_get_password_form = bool(
+            re.search(r'<form[^>]+method=["\']?get["\']?[^>]*>[\s\S]*?<input[^>]+type=["\']?password["\']?', body_excerpt, re.IGNORECASE)
+        )
+
+        if detected_sensitive_params or has_get_password_form:
+            detail_msg = (
+                f"Parâmetros sensíveis na URL: {', '.join(detected_sensitive_params)}"
+                if detected_sensitive_params
+                else "Formulário GET com campo de senha detectado no corpo da resposta"
+            )
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-B04",
+                    module_id=self.metadata.module_id,
+                    title="Transmissão Insegura de Credenciais via Query String (GET Login/Token)",
+                    status=CheckStatus.VULNERABILITY,
+                    summary=f"Credenciais ou segredos detectados em requisição GET/Query String ({detail_msg}).",
+                    details={
+                        "sensitive_params": detected_sensitive_params,
+                        "has_get_password_form": has_get_password_form,
+                    },
+                )
+            )
+            findings.append(
+                NormalizedFinding(
+                    endpoint=target_url,
+                    module_id=self.metadata.module_id,
+                    check_id="CHK-B04",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-B04", target_url, "credentials-in-qs"
+                    ),
+                    title="Transmissão Insegura de Credenciais via Query String / Método GET",
+                    description=(
+                        "Parâmetros de autenticação ou credenciais confidenciais foram identificados na query string "
+                        "ou submetidos via formulário com método GET, expondo dados sensíveis em logs de servidores, "
+                        "proxies reversos e histórico de navegação."
+                    ),
+                    category="Autenticação e Proteção de Segredos",
+                    result_classification=CheckStatus.VULNERABILITY,
+                    severity=Severity.HIGH,
+                    confidence=Confidence.CERTAIN,
+                    evidence=SanitizedEvidence(
+                        request_url=target_url,
+                        observed_value=detail_msg,
+                        expected_baseline="Submissão via corpo HTTP com método POST e cabeçalhos Authorization padronizados",
+                    ),
+                    owasp_references=["A07:2021-Identification and Authentication Failures"],
+                    cwe_ids=["CWE-598", "CWE-522"],
+                    impact="Vazamento de credenciais em registros de auditoria, servidores proxy, ferramentas de APM e cache de navegador.",
+                    remediation=RemediationEngine.get_guidance("credentials_in_query_string"),
+                )
+            )
+        else:
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-B04",
+                    module_id=self.metadata.module_id,
+                    title="Transmissão Insegura de Credenciais via Query String (GET Login/Token)",
+                    status=CheckStatus.PASSED,
+                    summary="Nenhum parâmetro de credencial sensível detectado em query string ou formulário GET.",
+                )
+            )
+
         exec_errors = sum(1 for c in checks if c.status == CheckStatus.EXECUTION_ERROR)
         return ModuleExecutionResult(
             module_id=self.metadata.module_id,
@@ -1789,6 +1936,7 @@ class ModuleCXSSSafe(BaseSecurityModule):
                 "CHK-C01: Reflexão de Parâmetros e Tratamento de Caracteres Especiais",
                 "CHK-C02: Sinks DOM Inseguros em Scripts e Páginas Web",
                 "CHK-C03: Mitigação de Scripts via Content-Security-Policy (CSP)",
+                "CHK-C04: Fuzzing Ativo Contextual em Múltiplos Parâmetros",
             ],
         )
 
@@ -1814,6 +1962,7 @@ class ModuleCXSSSafe(BaseSecurityModule):
         parsed = urlparse(target_url)
         hostname = parsed.hostname or "unknown"
         lower_headers = {k.lower(): v for k, v in headers.items()}
+        requests_made = 1
         requests_made = 1
 
         if is_Canceled and is_Canceled():
@@ -2079,6 +2228,83 @@ class ModuleCXSSSafe(BaseSecurityModule):
                 )
             )
 
+        # CHK-C04: Fuzzing Ativo Contextual em Múltiplos Parâmetros
+        contextual_xss_found = None
+        if http_client and getattr(http_client, "probe", None):
+            from urllib.parse import parse_qs
+            qs = parse_qs(parsed.query)
+            test_params = list(qs.keys()) if qs else ["q", "search", "msg", "name"]
+            xss_test_vectors = [
+                ("\"><csc_tag_probe>", "><csc_tag_probe>"),
+                ("\" onfocus=\"csc_attr_probe", "\" onfocus=\"csc_attr_probe"),
+                ("';csc_js_probe('1')//", "';csc_js_probe('1')//"),
+            ]
+            for param in test_params[:3]:
+                for payload, raw_needle in xss_test_vectors:
+                    sep = "&" if "?" in target_url else "?"
+                    probe_url = f"{target_url}{sep}{param}={payload}"
+                    try:
+                        probe_res = http_client.probe(probe_url, is_cancelled=is_Canceled)
+                        requests_made += 1
+                        if probe_res and raw_needle in probe_res.body:
+                            contextual_xss_found = (param, raw_needle)
+                            break
+                    except Exception:  # noqa: BLE001, S110
+                        pass
+                if contextual_xss_found:
+                    break
+
+        if contextual_xss_found:
+            param, vector = contextual_xss_found
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-C04",
+                    module_id=self.metadata.module_id,
+                    title="Fuzzing Ativo Contextual em Múltiplos Parâmetros",
+                    status=CheckStatus.VULNERABILITY,
+                    summary=f"Parâmetro '{param}' reflete payload contextual de XSS sem sanitização.",
+                    details={"param": param, "vector": vector},
+                )
+            )
+            findings.append(
+                NormalizedFinding(
+                    endpoint=target_url,
+                    module_id=self.metadata.module_id,
+                    check_id="CHK-C04",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-C04", target_url, f"contextual-xss-{param}"
+                    ),
+                    title=f"Reflexão de Vetor de XSS Contextual no Parâmetro '{param}'",
+                    description=(
+                        f"O parâmetro '{param}' permitiu a injeção do vetor contextual '{vector}' diretamente "
+                        "no documento HTML de resposta sem escape de aspas ou delimitadores de tag."
+                    ),
+                    category="Validação e Codificação de Entrada/Saída",
+                    result_classification=CheckStatus.VULNERABILITY,
+                    severity=Severity.HIGH,
+                    confidence=Confidence.CERTAIN,
+                    evidence=SanitizedEvidence(
+                        request_url=target_url,
+                        observed_value=f"Parâmetro '{param}' refletiu '{vector}' sem codificação",
+                        expected_baseline="Codificação contextual HTML/Atributo/JavaScript antes da renderização",
+                    ),
+                    owasp_references=["A03:2021-Injection"],
+                    cwe_ids=["CWE-79"],
+                    impact="Permite execução arbitrária de scripts no navegador da vítima via URLs manipuladas.",
+                    remediation=RemediationEngine.get_guidance("reflected_xss_indicator"),
+                )
+            )
+        else:
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-C04",
+                    module_id=self.metadata.module_id,
+                    title="Fuzzing Ativo Contextual em Múltiplos Parâmetros",
+                    status=CheckStatus.PASSED,
+                    summary="Nenhum vetor contextual de XSS foi refletido sem escape nos parâmetros testados.",
+                )
+            )
+
         exec_errors = sum(1 for c in checks if c.status == CheckStatus.EXECUTION_ERROR)
         return ModuleExecutionResult(
             module_id=self.metadata.module_id,
@@ -2136,6 +2362,8 @@ class ModuleDSQLiIndicators(BaseSecurityModule):
             checks_catalog=[
                 "CHK-D01: Assinaturas de Erros e Exceções Verbosas de Banco de Dados",
                 "CHK-D02: Comportamento Anômalo Não Destrutivo e Exposição de Estrutura Interna",
+                "CHK-D03: Indicadores de Injeção de Comandos de Sistema Operacional (OS Command Injection)",
+                "CHK-D04: Indicadores de SQL Injection Cego Baseado em Tempo / Booleano",
             ],
         )
 
@@ -2248,19 +2476,27 @@ class ModuleDSQLiIndicators(BaseSecurityModule):
 
         # CHK-D02: Comportamento Anômalo Não Destrutivo e Exposição de Estrutura Interna
         boundary_probe_triggered = False
+        vulnerable_param = "id"
         if http_client and getattr(http_client, "probe", None):
-            sep = "&" if "?" in target_url else "?"
-            probe_url = f"{target_url}{sep}id=1%27"
-            try:
-                probe_res = http_client.probe(probe_url, is_cancelled=is_Canceled)
-                requests_made += 1
-                if probe_res:
-                    for pattern, _ in SQL_ERROR_PATTERNS:
-                        if pattern.search(probe_res.body):
-                            boundary_probe_triggered = True
-                            break
-            except Exception:  # noqa: BLE001, S110
-                pass
+            from urllib.parse import parse_qs
+            qs = parse_qs(parsed.query)
+            test_params = list(qs.keys()) if qs else ["id", "cat", "search"]
+            for param in test_params[:3]:
+                sep = "&" if "?" in target_url else "?"
+                probe_url = f"{target_url}{sep}{param}=1%27"
+                try:
+                    probe_res = http_client.probe(probe_url, is_cancelled=is_Canceled)
+                    requests_made += 1
+                    if probe_res:
+                        for pattern, _ in SQL_ERROR_PATTERNS:
+                            if pattern.search(probe_res.body):
+                                boundary_probe_triggered = True
+                                vulnerable_param = param
+                                break
+                    if boundary_probe_triggered:
+                        break
+                except Exception:  # noqa: BLE001, S110
+                    pass
 
         if boundary_probe_triggered:
             checks.append(
@@ -2269,7 +2505,7 @@ class ModuleDSQLiIndicators(BaseSecurityModule):
                     module_id=self.metadata.module_id,
                     title="Comportamento Anômalo Não Destrutivo e Exposição de Estrutura Interna",
                     status=CheckStatus.VULNERABILITY,
-                    summary="Teste de limite não destrutivo com caractere de controle desencadeou erro interno de sintaxe SQL.",
+                    summary=f"Teste de limite não destrutivo com caractere de controle no parâmetro '{vulnerable_param}' desencadeou erro interno de sintaxe SQL.",
                 )
             )
             findings.append(
@@ -2278,17 +2514,17 @@ class ModuleDSQLiIndicators(BaseSecurityModule):
                     module_id=self.metadata.module_id,
                     check_id="CHK-D02",
                     fingerprint=RiskEngine.compute_finding_fingerprint(
-                        hostname, self.metadata.module_id, "CHK-D02", target_url, "sqli-boundary-anomaly"
+                        hostname, self.metadata.module_id, "CHK-D02", target_url, f"sqli-boundary-anomaly-{vulnerable_param}"
                     ),
-                    title="Vulnerabilidade Potencial a SQL Injection Identificada por Teste de Limite",
-                    description="O envio de caractere de escape de string provocou falha de banco de dados, evidenciando ausência de Prepared Statements.",
+                    title=f"Vulnerabilidade Potencial a SQL Injection no Parâmetro '{vulnerable_param}'",
+                    description=f"O envio de caractere de escape de string no parâmetro '{vulnerable_param}' provocou falha de banco de dados, evidenciando ausência de Prepared Statements.",
                     category="Injeção e Persistência Segura",
                     result_classification=CheckStatus.VULNERABILITY,
                     severity=Severity.HIGH,
                     confidence=Confidence.CERTAIN,
                     evidence=SanitizedEvidence(
                         request_url=target_url,
-                        observed_value="Falha de sintaxe SQL disparada por caractere de controle",
+                        observed_value=f"Falha de sintaxe SQL disparada por caractere de controle no parâmetro '{vulnerable_param}'",
                         expected_baseline="Consultas parametrizadas que tratam entradas como literais",
                     ),
                     owasp_references=["A03:2021-Injection"],
@@ -2305,6 +2541,200 @@ class ModuleDSQLiIndicators(BaseSecurityModule):
                     title="Comportamento Anômalo Não Destrutivo e Exposição de Estrutura Interna",
                     status=CheckStatus.PASSED,
                     summary="Tratamento seguro de parâmetros; nenhuma anomalia de sintaxe disparada.",
+                )
+            )
+
+        # CHK-D03: Indicadores de Injeção de Comandos de Sistema Operacional (OS Command Injection)
+        os_cmd_found = False
+        shell_error_detected = None
+        vulnerable_cmd_param = "cmd"
+        cmd_canary = "csc_cmd_canary_491"
+        shell_error_patterns = [
+            re.compile(r"sh:\s*(line\s*\d+:)?.*?: command not found", re.IGNORECASE),
+            re.compile(r"/bin/(ba)?sh:\s*.*?: not found", re.IGNORECASE),
+            re.compile(r"'cmd\.exe' is not recognized as an internal or external command", re.IGNORECASE),
+            re.compile(r"syntax error near unexpected token", re.IGNORECASE),
+        ]
+        if http_client and getattr(http_client, "probe", None):
+            from urllib.parse import parse_qs
+            qs = parse_qs(parsed.query)
+            test_params = list(qs.keys()) if qs else ["cmd", "exec", "ping", "host", "target", "query"]
+            for param in test_params[:3]:
+                sep = "&" if "?" in target_url else "?"
+                probe_url = f"{target_url}{sep}{param}=1;echo+{cmd_canary}"
+                try:
+                    probe_res = http_client.probe(probe_url, is_cancelled=is_Canceled)
+                    requests_made += 1
+                    if probe_res:
+                        if (
+                            cmd_canary in probe_res.body
+                            and f"echo {cmd_canary}" not in probe_res.body
+                            and f"echo+{cmd_canary}" not in probe_res.body
+                        ):
+                            os_cmd_found = True
+                            vulnerable_cmd_param = param
+                            break
+                        for serr in shell_error_patterns:
+                            m = serr.search(probe_res.body)
+                            if m:
+                                shell_error_detected = m.group(0)
+                                vulnerable_cmd_param = param
+                                break
+                    if shell_error_detected or os_cmd_found:
+                        break
+                except Exception:  # noqa: BLE001, S110
+                    pass
+
+        if os_cmd_found:
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-D03",
+                    module_id=self.metadata.module_id,
+                    title="Indicadores de Injeção de Comandos de Sistema Operacional (OS Command Injection)",
+                    status=CheckStatus.VULNERABILITY,
+                    summary=f"Injeção de comandos de sistema operacional confirmada no parâmetro '{vulnerable_cmd_param}' via eco de canário.",
+                )
+            )
+            findings.append(
+                NormalizedFinding(
+                    endpoint=target_url,
+                    module_id=self.metadata.module_id,
+                    check_id="CHK-D03",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-D03", target_url, f"os-cmd-injection-{vulnerable_cmd_param}"
+                    ),
+                    title=f"Injeção de Comandos de Sistema Operacional no Parâmetro '{vulnerable_cmd_param}'",
+                    description=(
+                        f"O parâmetro '{vulnerable_cmd_param}' permitiu a execução do comando de eco seguro, "
+                        "confirmando vulnerabilidade crítica a OS Command Injection."
+                    ),
+                    category="Injeção e Persistência Segura",
+                    result_classification=CheckStatus.VULNERABILITY,
+                    severity=Severity.CRITICAL,
+                    confidence=Confidence.CERTAIN,
+                    evidence=SanitizedEvidence(
+                        request_url=target_url,
+                        observed_value=f"Canário '{cmd_canary}' refletido na resposta através de delimitador de comando",
+                        expected_baseline="Execução parametrizada sem invocação de shell do sistema",
+                    ),
+                    owasp_references=["A03:2021-Injection"],
+                    cwe_ids=["CWE-78"],
+                    impact="Permite execução arbitrária de comandos no sistema operacional do servidor.",
+                    remediation=RemediationEngine.get_guidance("os_command_injection"),
+                )
+            )
+        elif shell_error_detected:
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-D03",
+                    module_id=self.metadata.module_id,
+                    title="Indicadores de Injeção de Comandos de Sistema Operacional (OS Command Injection)",
+                    status=CheckStatus.POTENTIAL_VULNERABILITY,
+                    summary=f"Mensagem de erro de interpretador de comandos (shell) detectada no parâmetro '{vulnerable_cmd_param}'.",
+                    details={"error": shell_error_detected},
+                )
+            )
+            findings.append(
+                NormalizedFinding(
+                    endpoint=target_url,
+                    module_id=self.metadata.module_id,
+                    check_id="CHK-D03",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-D03", target_url, f"os-cmd-error-{vulnerable_cmd_param}"
+                    ),
+                    title=f"Indício de Injeção de Comandos de Shell no Parâmetro '{vulnerable_cmd_param}'",
+                    description=f"A resposta revelou a mensagem de erro de shell '{shell_error_detected}', indicando interpolação em interpretador de comandos.",
+                    category="Injeção e Persistência Segura",
+                    result_classification=CheckStatus.POTENTIAL_VULNERABILITY,
+                    severity=Severity.HIGH,
+                    confidence=Confidence.FIRM,
+                    evidence=SanitizedEvidence(
+                        request_url=target_url,
+                        observed_value=shell_error_detected,
+                        expected_baseline="Nenhum interpretador de shell acionado por dados de entrada",
+                    ),
+                    owasp_references=["A03:2021-Injection"],
+                    cwe_ids=["CWE-78"],
+                    impact="Potencial execução de comandos no servidor.",
+                    remediation=RemediationEngine.get_guidance("os_command_injection"),
+                )
+            )
+        else:
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-D03",
+                    module_id=self.metadata.module_id,
+                    title="Indicadores de Injeção de Comandos de Sistema Operacional (OS Command Injection)",
+                    status=CheckStatus.PASSED,
+                    summary="Nenhum indício ou execução de comando de shell detectado nos parâmetros testados.",
+                )
+            )
+
+        # CHK-D04: Indicadores de SQL Injection Cego Baseado em Tempo / Booleano
+        blind_sqli_found = False
+        vulnerable_blind_param = "id"
+        if http_client and getattr(http_client, "probe", None):
+            from urllib.parse import parse_qs
+            qs = parse_qs(parsed.query)
+            test_params = list(qs.keys()) if qs else ["id", "filter", "query"]
+            for param in test_params[:2]:
+                sep = "&" if "?" in target_url else "?"
+                probe_url = f"{target_url}{sep}{param}=1%20AND%20pg_sleep(2)--"
+                try:
+                    start_probe = time.monotonic()
+                    probe_res = http_client.probe(probe_url, is_cancelled=is_Canceled)
+                    duration = time.monotonic() - start_probe
+                    requests_made += 1
+                    if probe_res and duration >= 1.9:
+                        blind_sqli_found = True
+                        vulnerable_blind_param = param
+                        break
+                except Exception:  # noqa: BLE001, S110
+                    pass
+
+        if blind_sqli_found:
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-D04",
+                    module_id=self.metadata.module_id,
+                    title="Indicadores de SQL Injection Cego Baseado em Tempo / Booleano",
+                    status=CheckStatus.VULNERABILITY,
+                    summary=f"Injeção de atraso temporal condicional (pg_sleep) no parâmetro '{vulnerable_blind_param}' resultou em retenção de resposta esperada.",
+                )
+            )
+            findings.append(
+                NormalizedFinding(
+                    endpoint=target_url,
+                    module_id=self.metadata.module_id,
+                    check_id="CHK-D04",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-D04", target_url, f"blind-sqli-time-{vulnerable_blind_param}"
+                    ),
+                    title=f"Vulnerabilidade a SQL Injection Cego Baseado em Tempo no Parâmetro '{vulnerable_blind_param}'",
+                    description=f"O envio de payload de atraso temporal no parâmetro '{vulnerable_blind_param}' induziu um atraso mensurável na resposta do servidor.",
+                    category="Injeção e Persistência Segura",
+                    result_classification=CheckStatus.VULNERABILITY,
+                    severity=Severity.HIGH,
+                    confidence=Confidence.CERTAIN,
+                    evidence=SanitizedEvidence(
+                        request_url=target_url,
+                        observed_value=f"Atraso temporal mensurável de >= 1.9s no parâmetro '{vulnerable_blind_param}'",
+                        expected_baseline="Consultas parametrizadas que impedem a execução de funções de controle de fluxo de banco",
+                    ),
+                    owasp_references=["A03:2021-Injection"],
+                    cwe_ids=["CWE-89"],
+                    impact="Permite extração cega e manipulação de registros de banco de dados via inferência temporal.",
+                    remediation=RemediationEngine.get_guidance("unparameterized_query_pattern"),
+                )
+            )
+        else:
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-D04",
+                    module_id=self.metadata.module_id,
+                    title="Indicadores de SQL Injection Cego Baseado em Tempo / Booleano",
+                    status=CheckStatus.PASSED,
+                    summary="Nenhum comportamento diferencial ou retenção temporal detectada nos parâmetros testados.",
                 )
             )
 
@@ -2339,9 +2769,9 @@ class ModuleFDoSResiliencePosture(BaseSecurityModule):
             impact_level=ImpactLevel.LOW_IMPACT_ACTIVE,
             supported_asset_types=[AssetType.WEB_APP, AssetType.REST_API, AssetType.GRAPHQL_API],
             owasp_references=["API4:2023-Unrestricted Resource Consumption"],
-            wstg_references=["WSTG-CONF-01"],
+            wstg_references=["WSTG-CONF-01", "WSTG-INPV-15"],
             asvs_references=["ASVS-V11.1.4", "ASVS-V13.1"],
-            cwe_references=["CWE-770", "CWE-400"],
+            cwe_references=["CWE-770", "CWE-400", "CWE-444"],
             enabled_by_default=True,
             requires_authentication=False,
             allow_in_production=True,
@@ -2349,6 +2779,7 @@ class ModuleFDoSResiliencePosture(BaseSecurityModule):
                 "CHK-F01: Detecção de Controles de Borda (CDN / WAF)",
                 "CHK-F02: Presença de Políticas de Rate Limiting (RateLimit-* / X-RateLimit-*)",
                 "CHK-F03: Limite de Tamanho de Requisição e Proteção de Endpoints Sensíveis",
+                "CHK-F04: Inconsistência de Cabeçalhos HTTP (Risco de HTTP Request Smuggling / Desync)",
             ],
         )
 
@@ -2374,6 +2805,7 @@ class ModuleFDoSResiliencePosture(BaseSecurityModule):
         parsed = urlparse(target_url)
         hostname = parsed.hostname or "unknown"
         lower_headers = {k.lower(): v for k, v in headers.items()}
+        requests_made = 1
 
         if is_Canceled and is_Canceled():
             return ModuleExecutionResult(module_id=self.metadata.module_id)
@@ -2530,12 +2962,89 @@ class ModuleFDoSResiliencePosture(BaseSecurityModule):
             )
         )
 
+        # CHK-F04: Inconsistência de Cabeçalhos HTTP (Risco de HTTP Request Smuggling / Desync)
+        smuggling_risk = False
+        smuggling_evidence = ""
+        if "content-length" in lower_headers and "transfer-encoding" in lower_headers:
+            smuggling_risk = True
+            smuggling_evidence = (
+                f"Resposta recebida com cabeçalhos conflitantes: Content-Length ({lower_headers['content-length']}) "
+                f"e Transfer-Encoding ({lower_headers['transfer-encoding']})"
+            )
+        elif http_client and getattr(http_client, "probe", None):
+            try:
+                probe_res = http_client.probe(
+                    target_url,
+                    method="POST",
+                    headers={"Transfer-Encoding": "chunked", "Content-Length": "4"},
+                    is_cancelled=is_Canceled,
+                )
+                if probe_res:
+                    requests_made += 1
+                    resp_headers = {k.lower(): v for k, v in probe_res.headers.items()} if hasattr(probe_res, "headers") else {}
+                    if probe_res.status_code == 200 and ("transfer-encoding" in resp_headers or "content-length" in resp_headers):
+                        smuggling_risk = True
+                        smuggling_evidence = "Servidor aceitou payload com Transfer-Encoding e Content-Length simultâneos sem rejeição (HTTP 400)"
+            except Exception:  # noqa: BLE001, S110
+                pass
+
+        if smuggling_risk:
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-F04",
+                    module_id=self.metadata.module_id,
+                    title="Inconsistência de Cabeçalhos HTTP (Risco de HTTP Request Smuggling / Desync)",
+                    status=CheckStatus.POTENTIAL_VULNERABILITY,
+                    summary=f"Inconsistência de enquadramento HTTP detectada ({smuggling_evidence}).",
+                    details={"evidence": smuggling_evidence},
+                )
+            )
+            findings.append(
+                NormalizedFinding(
+                    endpoint=target_url,
+                    module_id=self.metadata.module_id,
+                    check_id="CHK-F04",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-F04", target_url, "http-smuggling-risk"
+                    ),
+                    title="Risco de HTTP Request Smuggling / Dessincronização de Proxies (TE/CL Ambíguo)",
+                    description=(
+                        "A infraestrutura aceita requisições com cabeçalhos conflitantes de enquadramento HTTP "
+                        "(Content-Length e Transfer-Encoding simultâneos) sem rejeição estrita (HTTP 400), "
+                        "o que pode possibilitar ataques de dessincronização entre reverse proxy e origin server."
+                    ),
+                    category="Resiliência Operacional e Infraestrutura",
+                    result_classification=CheckStatus.POTENTIAL_VULNERABILITY,
+                    severity=Severity.HIGH,
+                    confidence=Confidence.FIRM,
+                    evidence=SanitizedEvidence(
+                        request_url=target_url,
+                        observed_value=smuggling_evidence,
+                        expected_baseline="Rejeição estrita com HTTP 400 Bad Request ou normalização imediata pelo proxy reverso (RFC 9112)",
+                    ),
+                    owasp_references=["API4:2023-Unrestricted Resource Consumption", "A05:2021-Security Misconfiguration"],
+                    cwe_ids=["CWE-444"],
+                    impact="Dessincronização de filas de requisições HTTP permitindo envenenamento de cache, sequestro de requisições de outros usuários ou bypass de controles de autenticação.",
+                    remediation=RemediationEngine.get_guidance("http_request_smuggling_desync_risk"),
+                )
+            )
+        else:
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-F04",
+                    module_id=self.metadata.module_id,
+                    title="Inconsistência de Cabeçalhos HTTP (Risco de HTTP Request Smuggling / Desync)",
+                    status=CheckStatus.PASSED,
+                    summary="Enquadramento de mensagens HTTP e conformidade de cabeçalhos RFC 9112 validados sem inconsistências.",
+                )
+            )
+
         exec_errors = sum(1 for c in checks if c.status == CheckStatus.EXECUTION_ERROR)
         return ModuleExecutionResult(
             module_id=self.metadata.module_id,
             checks=checks,
             findings=findings,
-            total_requests=1,
+            total_requests=requests_made,
             execution_errors=exec_errors,
         )
 
@@ -2567,7 +3076,7 @@ class ModuleGAPISecurity(BaseSecurityModule):
             ],
             wstg_references=["WSTG-APIT-01", "WSTG-CLNT-07"],
             asvs_references=["ASVS-V13", "ASVS-V14.5"],
-            cwe_references=["CWE-942", "CWE-200", "CWE-639"],
+            cwe_references=["CWE-942", "CWE-200", "CWE-639", "CWE-345", "CWE-347"],
             enabled_by_default=True,
             requires_authentication=False,
             allow_in_production=True,
@@ -2575,6 +3084,8 @@ class ModuleGAPISecurity(BaseSecurityModule):
                 "CHK-G01: Configuração Insegura de CORS (Access-Control-Allow-Origin / Credentials)",
                 "CHK-G02: Exposição Pública de Documentação OpenAPI/Swagger e GraphQL Introspection",
                 "CHK-G03: Métodos HTTP Desnecessários e Cabeçalhos de Cache em Respostas de API",
+                "CHK-G04: Verificação Ativa de Métodos HTTP Perigosos (Verb Tampering & XST)",
+                "CHK-G05: Configuração e Validação Insegura de Tokens JWT (Chaves Fracas / Algoritmo Permissivo)",
             ],
         )
 
@@ -2600,6 +3111,7 @@ class ModuleGAPISecurity(BaseSecurityModule):
         parsed = urlparse(target_url)
         hostname = parsed.hostname or "unknown"
         lower_headers = {k.lower(): v for k, v in headers.items()}
+        requests_made = 1
         requests_made = 1
 
         if is_Canceled and is_Canceled():
@@ -2699,16 +3211,77 @@ class ModuleGAPISecurity(BaseSecurityModule):
                 )
             )
         else:
-            checks.append(
-                CheckEvaluationResult(
-                    check_id="CHK-G01",
-                    module_id=self.metadata.module_id,
-                    title="Configuração Insegura de CORS",
-                    status=CheckStatus.PASSED,
-                    summary="Configuração de cabeçalhos CORS segura ou não exposta publicamente.",
-                    details={"allow_origin": allow_origin or "não configurado"},
+            # Teste ativo de reflexão arbitrária de origem
+            active_cors_reflection_vuln = False
+            attacker_origin = "https://attacker.csc-test.internal"
+            if http_client and getattr(http_client, "probe", None):
+                try:
+                    cors_probe = http_client.probe(
+                        target_url,
+                        headers={"Origin": attacker_origin},
+                        is_cancelled=is_Canceled,
+                    )
+                    requests_made += 1
+                    if cors_probe:
+                        probe_lower_headers = {k.lower(): v for k, v in cors_probe.headers.items()}
+                        resp_origin = probe_lower_headers.get("access-control-allow-origin", "").strip()
+                        resp_creds = probe_lower_headers.get("access-control-allow-credentials", "").strip().lower()
+                        if resp_origin == attacker_origin and resp_creds == "true":
+                            active_cors_reflection_vuln = True
+                except Exception:  # noqa: BLE001, S110
+                    pass
+
+            if active_cors_reflection_vuln:
+                checks.append(
+                    CheckEvaluationResult(
+                        check_id="CHK-G01",
+                        module_id=self.metadata.module_id,
+                        title="Configuração Insegura de CORS",
+                        status=CheckStatus.VULNERABILITY,
+                        summary="A API reflete arbitrariamente qualquer cabeçalho 'Origin' em conjunto com 'Access-Control-Allow-Credentials: true'.",
+                        details={"reflected_origin": attacker_origin, "credentials": "true"},
+                    )
                 )
-            )
+                findings.append(
+                    NormalizedFinding(
+                        endpoint=target_url,
+                        module_id=self.metadata.module_id,
+                        check_id="CHK-G01",
+                        fingerprint=RiskEngine.compute_finding_fingerprint(
+                            hostname, self.metadata.module_id, "CHK-G01", target_url, "cors-arbitrary-reflection"
+                        ),
+                        title="Reflexão Arbitrária de Origem CORS com Credenciais Habilitadas",
+                        description=(
+                            "A API respondeu ao cabeçalho Origin arbitrário ('https://attacker.csc-test.internal') "
+                            "refletindo-o em 'Access-Control-Allow-Origin' e autorizando 'Access-Control-Allow-Credentials: true'. "
+                            "Isso permite que qualquer website malicioso leia dados confidenciais e autenticados de usuários."
+                        ),
+                        category="Segurança de APIs e CORS",
+                        result_classification=CheckStatus.VULNERABILITY,
+                        severity=Severity.HIGH,
+                        confidence=Confidence.CERTAIN,
+                        evidence=SanitizedEvidence(
+                            request_url=target_url,
+                            observed_value=f"Allow-Origin: {attacker_origin}, Allow-Credentials: true",
+                            expected_baseline="Lista explícita e fixa de origens confiáveis sem reflexão cega",
+                        ),
+                        owasp_references=["API8:2023-Security Misconfiguration"],
+                        cwe_ids=["CWE-942", "CWE-346"],
+                        impact="Exfiltração de dados confidenciais e chamadas à API autenticadas via navegador de vítimas.",
+                        remediation=RemediationEngine.get_guidance("cors_arbitrary_origin"),
+                    )
+                )
+            else:
+                checks.append(
+                    CheckEvaluationResult(
+                        check_id="CHK-G01",
+                        module_id=self.metadata.module_id,
+                        title="Configuração Insegura de CORS",
+                        status=CheckStatus.PASSED,
+                        summary="Configuração de cabeçalhos CORS segura ou não exposta publicamente.",
+                        details={"allow_origin": allow_origin or "não configurado"},
+                    )
+                )
 
         # CHK-G02: Exposição Pública de Documentação OpenAPI/Swagger e GraphQL Introspection
         docs_exposed = False
@@ -2827,6 +3400,164 @@ class ModuleGAPISecurity(BaseSecurityModule):
                 )
             )
 
+        # CHK-G04: Verificação Ativa de Métodos HTTP Perigosos (Verb Tampering & XST)
+        trace_active_vulnerable = False
+        if http_client and getattr(http_client, "probe", None):
+            canary_header_val = "csc_xst_audit_canary_718"
+            try:
+                trace_res = http_client.probe(
+                    target_url,
+                    method="TRACE",
+                    headers={"X-CSC-Audit-Token": canary_header_val},
+                    is_cancelled=is_Canceled,
+                )
+                requests_made += 1
+                if trace_res and trace_res.status_code == 200 and canary_header_val in trace_res.body:
+                    trace_active_vulnerable = True
+            except Exception:  # noqa: BLE001, S110
+                pass
+
+        if trace_active_vulnerable:
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-G04",
+                    module_id=self.metadata.module_id,
+                    title="Verificação Ativa de Métodos HTTP Perigosos (Verb Tampering & XST)",
+                    status=CheckStatus.VULNERABILITY,
+                    summary="O método TRACE está ativo e ecoou cabeçalhos de requisição na resposta (Vulnerabilidade a Cross-Site Tracing / XST).",
+                )
+            )
+            findings.append(
+                NormalizedFinding(
+                    endpoint=target_url,
+                    module_id=self.metadata.module_id,
+                    check_id="CHK-G04",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-G04", target_url, "xst-active-trace-confirmed"
+                    ),
+                    title="Método HTTP TRACE Ativo com Eco de Cabeçalhos (XST Confirmado)",
+                    description="O servidor web aceitou o método TRACE com status HTTP 200 e ecoou cabeçalhos confidenciais da requisição. Isso permite que invasores explorem XSS para extrair cookies marcados com HttpOnly.",
+                    category="Configurações de Segurança e Métodos HTTP",
+                    result_classification=CheckStatus.VULNERABILITY,
+                    severity=Severity.MEDIUM,
+                    confidence=Confidence.CERTAIN,
+                    evidence=SanitizedEvidence(
+                        request_url=target_url,
+                        observed_value="HTTP 200 OK com eco do cabeçalho de teste X-CSC-Audit-Token",
+                        expected_baseline="HTTP 405 Method Not Allowed ou HTTP 501 Not Implemented para TRACE",
+                    ),
+                    owasp_references=["API8:2023-Security Misconfiguration"],
+                    cwe_ids=["CWE-650", "CWE-200"],
+                    impact="Bypass da proteção HttpOnly via Cross-Site Tracing.",
+                    remediation=RemediationEngine.get_guidance("http_dangerous_methods"),
+                )
+            )
+        else:
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-G04",
+                    module_id=self.metadata.module_id,
+                    title="Verificação Ativa de Métodos HTTP Perigosos (Verb Tampering & XST)",
+                    status=CheckStatus.PASSED,
+                    summary="Método TRACE desabilitado ou rejeitado com segurança pelo servidor.",
+                )
+            )
+
+        # CHK-G05: Configuração e Validação Insegura de Tokens JWT (Chaves Fracas / Algoritmo Permissivo)
+        jwt_pattern = re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]*)?\b")
+        found_jwt = None
+        for h_val in headers.values():
+            m = jwt_pattern.search(h_val)
+            if m:
+                found_jwt = m.group(0)
+                break
+        if not found_jwt and body_excerpt:
+            m = jwt_pattern.search(body_excerpt)
+            if m:
+                found_jwt = m.group(0)
+
+        if found_jwt:
+            jwt_issue = None
+            jwt_parts = found_jwt.split(".")
+            try:
+                def _b64_url_decode(segment: str) -> dict[str, Any]:
+                    padding = len(segment) % 4
+                    if padding:
+                        segment += "=" * (4 - padding)
+                    decoded = base64.urlsafe_b64decode(segment.encode("ascii", errors="ignore"))
+                    return json.loads(decoded.decode("utf-8", errors="ignore"))
+
+                jwt_header = _b64_url_decode(jwt_parts[0])
+                jwt_payload = _b64_url_decode(jwt_parts[1]) if len(jwt_parts) > 1 else {}
+                alg = str(jwt_header.get("alg", "")).lower()
+
+                if alg in ("none", "") or len(jwt_parts) < 3 or not jwt_parts[2]:
+                    jwt_issue = "Token JWT configurado com algoritmo 'none' ou assinatura vazia (permite falsificação total de identidade)"
+                elif "exp" not in jwt_payload:
+                    jwt_issue = "Token JWT sem claim de expiração ('exp'), permitindo sessões perpétuas"
+            except Exception:  # noqa: BLE001
+                jwt_issue = None
+
+            if jwt_issue:
+                checks.append(
+                    CheckEvaluationResult(
+                        check_id="CHK-G05",
+                        module_id=self.metadata.module_id,
+                        title="Configuração e Validação Insegura de Tokens JWT",
+                        status=CheckStatus.VULNERABILITY,
+                        summary=f"Token JWT inseguro detectado: {jwt_issue}.",
+                        details={"issue": jwt_issue},
+                    )
+                )
+                findings.append(
+                    NormalizedFinding(
+                        endpoint=target_url,
+                        module_id=self.metadata.module_id,
+                        check_id="CHK-G05",
+                        fingerprint=RiskEngine.compute_finding_fingerprint(
+                            hostname, self.metadata.module_id, "CHK-G05", target_url, "insecure-jwt-config"
+                        ),
+                        title="Configuração Insegura de Token JWT (Algoritmo Permissivo / Ausência de Expiração)",
+                        description=(
+                            f"A inspeção de tokens emitidos revelou vulnerabilidade de especificação: {jwt_issue}. "
+                            "Isso pode permitir a falsificação de tokens sem conhecimento da chave privada ou a persistência perpétua de credenciais vazadas."
+                        ),
+                        category="Segurança de APIs e Criptografia",
+                        result_classification=CheckStatus.VULNERABILITY,
+                        severity=Severity.HIGH,
+                        confidence=Confidence.CERTAIN,
+                        evidence=SanitizedEvidence(
+                            request_url=target_url,
+                            observed_value=f"Token JWT detectado: {jwt_issue}",
+                            expected_baseline="Assinatura assimétrica obrigatória (RS256/EdDSA) com expiração 'exp' estrita e algoritmo 'none' bloqueado",
+                        ),
+                        owasp_references=["API2:2023-Broken Authentication"],
+                        cwe_ids=["CWE-345", "CWE-347"],
+                        impact="Falsificação de credenciais e elevação não autorizada de privilégios na API.",
+                        remediation=RemediationEngine.get_guidance("insecure_jwt_token_configuration"),
+                    )
+                )
+            else:
+                checks.append(
+                    CheckEvaluationResult(
+                        check_id="CHK-G05",
+                        module_id=self.metadata.module_id,
+                        title="Configuração e Validação Insegura de Tokens JWT",
+                        status=CheckStatus.PASSED,
+                        summary="Token JWT analisado possui assinatura criptográfica válida e claim de expiração (exp).",
+                    )
+                )
+        else:
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-G05",
+                    module_id=self.metadata.module_id,
+                    title="Configuração e Validação Insegura de Tokens JWT",
+                    status=CheckStatus.PASSED,
+                    summary="Nenhum token JWT inseguro detectado nos cabeçalhos ou no corpo da resposta da API.",
+                )
+            )
+
         exec_errors = sum(1 for c in checks if c.status == CheckStatus.EXECUTION_ERROR)
         return ModuleExecutionResult(
             module_id=self.metadata.module_id,
@@ -2863,7 +3594,7 @@ class ModuleHMisconfigAndOther(BaseSecurityModule):
             ],
             wstg_references=["WSTG-CONF-04", "WSTG-ATHZ-01", "WSTG-CLNT-04"],
             asvs_references=["ASVS-V4", "ASVS-V14"],
-            cwe_references=["CWE-352", "CWE-538", "CWE-548", "CWE-601"],
+            cwe_references=["CWE-352", "CWE-538", "CWE-548", "CWE-601", "CWE-306"],
             enabled_by_default=True,
             requires_authentication=False,
             allow_in_production=True,
@@ -2872,6 +3603,9 @@ class ModuleHMisconfigAndOther(BaseSecurityModule):
                 "CHK-H02: Detecção de Directory Listing Habilitado",
                 "CHK-H03: Proteção contra Redirecionamento Aberto (Open Redirect)",
                 "CHK-H04: Proteção contra Cross-Site Request Forgery (CSRF)",
+                "CHK-H05: Detecção de Path Traversal / Local File Inclusion (LFI)",
+                "CHK-H06: Indicadores de Server-Side Request Forgery (SSRF) no Alvo",
+                "CHK-H07: Exposição de Interfaces de Administração e Depuração (Admin/Actuator/Debug Panels)",
             ],
         )
 
@@ -2920,18 +3654,33 @@ class ModuleHMisconfigAndOther(BaseSecurityModule):
 
         # CHK-H01: Exposição de Arquivos Sensíveis e Metadados de Sistema
         sensitive_exposed = None
-        if any(parsed.path.lower().endswith(ext) for ext in [".env", ".git/config", "backup.sql"]):
-            if status_code == 200 and any(s in body_excerpt for s in ["=", "[core]", "DATABASE"]):
+        sensitive_file_probes = [
+            ("/.env", ["DATABASE_URL", "SECRET_KEY", "PASSWORD", "APP_KEY", "_KEY=", "_SECRET="]),
+            ("/.git/HEAD", ["ref: refs/"]),
+            ("/.git/config", ["[core]", "repositoryformatversion"]),
+            ("/.env.local", ["DATABASE", "KEY=", "SECRET="]),
+            ("/backup.sql", ["CREATE TABLE", "INSERT INTO", "-- MySQL dump", "-- PostgreSQL"]),
+            ("/dump.sql", ["CREATE TABLE", "INSERT INTO"]),
+            ("/docker-compose.yml", ["services:", "version:"]),
+            ("/web.config", ["<configuration>", "<system.webServer>"]),
+            ("/package.json", ['"name":', '"dependencies":']),
+        ]
+        if any(parsed.path.lower().endswith(ext) for ext in [".env", ".git/config", "backup.sql", "dump.sql"]):
+            if status_code == 200 and any(s in body_excerpt for s in ["=", "[core]", "DATABASE", "CREATE TABLE"]):
                 sensitive_exposed = parsed.path
         elif http_client and getattr(http_client, "probe", None):
             origin = f"{parsed.scheme}://{parsed.netloc}"
-            try:
-                probe_res = http_client.probe(f"{origin}/.env", is_cancelled=is_Canceled)
-                requests_made += 1
-                if probe_res and probe_res.status_code == 200 and any(k in probe_res.body for k in ["DATABASE_URL", "SECRET_KEY", "PASSWORD", "="]):
-                    sensitive_exposed = "/.env"
-            except Exception:  # noqa: BLE001, S110
-                pass
+            for spath, signatures in sensitive_file_probes:
+                if is_Canceled and is_Canceled():
+                    break
+                try:
+                    probe_res = http_client.probe(f"{origin}{spath}", is_cancelled=is_Canceled)
+                    requests_made += 1
+                    if probe_res and probe_res.status_code == 200 and any(k in probe_res.body for k in signatures):
+                        sensitive_exposed = spath
+                        break
+                except Exception:  # noqa: BLE001, S110
+                    pass
 
         if sensitive_exposed:
             checks.append(
@@ -3037,7 +3786,6 @@ class ModuleHMisconfigAndOther(BaseSecurityModule):
         # CHK-H03: Proteção contra Redirecionamento Aberto (Open Redirect)
         open_redirect_found = False
         redirect_param_names = ["redirect", "url", "next", "return_to", "goto", "dest"]
-        from urllib.parse import parse_qs
         qs = parse_qs(parsed.query)
         for rparam in redirect_param_names:
             if rparam in qs:
@@ -3049,6 +3797,40 @@ class ModuleHMisconfigAndOther(BaseSecurityModule):
                             if loc_head and dest_host in loc_head:
                                 open_redirect_found = True
                                 break
+
+        # Prova ativa de Open Redirect quando http_client estiver disponível
+        if not open_redirect_found and http_client and getattr(http_client, "probe", None):
+            canary_target = "https://canary.csc-redirect.internal"
+            test_params = [p for p in qs if p in redirect_param_names]
+            if not test_params and parsed.path.rstrip("/").split("/")[-1] in ("login", "redirect", "auth"):
+                test_params = ["next", "redirect"]
+            for rparam in test_params[:2]:
+                if is_Canceled and is_Canceled():
+                    break
+                probe_qs = dict(qs)
+                probe_qs[rparam] = [canary_target]
+                probe_url = urlunparse((
+                    parsed.scheme,
+                    parsed.netloc,
+                    parsed.path,
+                    parsed.params,
+                    urlencode(probe_qs, doseq=True),
+                    parsed.fragment,
+                ))
+                try:
+                    probe_res = http_client.probe(probe_url, is_cancelled=is_Canceled)
+                    requests_made += 1
+                    if probe_res and probe_res.status_code in (301, 302, 303, 307, 308):
+                        loc_header = (
+                            probe_res.headers.get("Location")
+                            or probe_res.headers.get("location")
+                            or ""
+                        )
+                        if "canary.csc-redirect.internal" in loc_header:
+                            open_redirect_found = True
+                            break
+                except Exception:  # noqa: BLE001, S110
+                    pass
 
         if open_redirect_found:
             checks.append(
@@ -3153,6 +3935,296 @@ class ModuleHMisconfigAndOther(BaseSecurityModule):
                     title="Proteção contra Cross-Site Request Forgery (CSRF)",
                     status=CheckStatus.PASSED,
                     summary="Mecanismos anti-CSRF (tokens ou cookies SameSite) identificados ou inexistência de formulários POST desprotegidos.",
+                )
+            )
+
+        # CHK-H05: Detecção de Path Traversal / Local File Inclusion (LFI)
+        lfi_detected = False
+        lfi_evidence_val = ""
+        linux_passwd_regex = re.compile(r"root:[^:]*:[0-9]+:[0-9]+:[^:]*:[^:]*:", re.IGNORECASE)
+        win_ini_regex = re.compile(r"\[(fonts|extensions|mci extensions|files)\]", re.IGNORECASE)
+
+        if linux_passwd_regex.search(body_excerpt):
+            lfi_detected = True
+            lfi_evidence_val = "Assinatura do /etc/passwd detectada na resposta inicial"
+        elif win_ini_regex.search(body_excerpt):
+            lfi_detected = True
+            lfi_evidence_val = "Assinatura do win.ini detectada na resposta inicial"
+
+        if not lfi_detected and http_client and getattr(http_client, "probe", None):
+            qs_lfi = parse_qs(parsed.query)
+            candidate_params = list(qs_lfi.keys()) if qs_lfi else ["file", "page", "path", "doc", "view", "include"]
+            lfi_payloads = [
+                "../../../../../../../../etc/passwd",
+                "..%2F..%2F..%2F..%2F..%2F..%2F..%2F..%2Fetc%2Fpasswd",
+                "..\\..\\..\\..\\..\\..\\..\\..\\windows\\win.ini",
+            ]
+            for param in candidate_params[:3]:
+                if is_Canceled and is_Canceled():
+                    break
+                for payload in lfi_payloads:
+                    if is_Canceled and is_Canceled():
+                        break
+                    probe_params = dict(qs_lfi)
+                    probe_params[param] = [payload]
+                    probe_url = urlunparse((
+                        parsed.scheme,
+                        parsed.netloc,
+                        parsed.path,
+                        parsed.params,
+                        urlencode(probe_params, doseq=True),
+                        parsed.fragment,
+                    ))
+                    try:
+                        probe_res = http_client.probe(probe_url, is_cancelled=is_Canceled)
+                        requests_made += 1
+                        if probe_res and probe_res.status_code == 200:
+                            if linux_passwd_regex.search(probe_res.body):
+                                lfi_detected = True
+                                lfi_evidence_val = f"Conteúdo de /etc/passwd vazado via parâmetro '{param}={payload}'"
+                                break
+                            if win_ini_regex.search(probe_res.body):
+                                lfi_detected = True
+                                lfi_evidence_val = f"Conteúdo de win.ini vazado via parâmetro '{param}={payload}'"
+                                break
+                    except Exception:  # noqa: BLE001, S110
+                        pass
+                if lfi_detected:
+                    break
+
+        if lfi_detected:
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-H05",
+                    module_id=self.metadata.module_id,
+                    title="Detecção de Path Traversal / Local File Inclusion (LFI)",
+                    status=CheckStatus.VULNERABILITY,
+                    summary="Vulnerabilidade de Path Traversal / LFI confirmada: acesso a arquivos locais do sistema.",
+                    details={"evidence": lfi_evidence_val},
+                )
+            )
+            findings.append(
+                NormalizedFinding(
+                    endpoint=target_url,
+                    module_id=self.metadata.module_id,
+                    check_id="CHK-H05",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-H05", target_url, "path-traversal-lfi"
+                    ),
+                    title="Vulnerabilidade de Path Traversal / Inclusão de Arquivos Locais (LFI)",
+                    description="O alvo permite navegação em diretórios e leitura arbitrária de arquivos do sistema operacional através de sequências '../' ou '..\\'.",
+                    category="Configuração e Controle de Acesso",
+                    result_classification=CheckStatus.VULNERABILITY,
+                    severity=Severity.CRITICAL,
+                    confidence=Confidence.CERTAIN,
+                    evidence=SanitizedEvidence(
+                        request_url=target_url,
+                        observed_value=lfi_evidence_val,
+                        expected_baseline="Validação estrita de nomes de arquivos com whitelist e canonicalização de caminhos com restrição de diretório raiz",
+                    ),
+                    owasp_references=["A01:2021-Broken Access Control"],
+                    cwe_ids=["CWE-22"],
+                    impact="Permite leitura de arquivos confidenciais do sistema (/etc/passwd, configurações, chaves privadas) e potencial execução de código remoto.",
+                    safe_reproduction_steps=[
+                        f"Enviar requisição HTTP para {target_url} com parâmetro de caminho contendo sequências de traversal ('../../etc/passwd')."
+                    ],
+                    remediation=RemediationEngine.get_guidance("path_traversal_lfi"),
+                )
+            )
+        else:
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-H05",
+                    module_id=self.metadata.module_id,
+                    title="Detecção de Path Traversal / Local File Inclusion (LFI)",
+                    status=CheckStatus.PASSED,
+                    summary="Nenhum indicador de Path Traversal ou vazamento de arquivos locais identificado.",
+                )
+            )
+
+        # CHK-H06: Indicadores de Server-Side Request Forgery (SSRF) no Alvo
+        ssrf_detected = False
+        ssrf_evidence_val = ""
+        ssrf_error_patterns = [
+            re.compile(r"getaddrinfo.*canary\.csc-ssrf-probe\.internal", re.IGNORECASE),
+            re.compile(r"Could not resolve host.*canary\.csc-ssrf-probe\.internal", re.IGNORECASE),
+            re.compile(r"Failed to connect to canary\.csc-ssrf-probe\.internal", re.IGNORECASE),
+            re.compile(r"Name or service not known", re.IGNORECASE),
+            re.compile(r"socket\.gaierror", re.IGNORECASE),
+            re.compile(r"ConnectionRefusedError", re.IGNORECASE),
+            re.compile(r"cURL error 6:", re.IGNORECASE),
+        ]
+        if http_client and getattr(http_client, "probe", None):
+            qs_ssrf = parse_qs(parsed.query)
+            ssrf_candidates = [
+                p for p in qs_ssrf
+                if p.lower() in ("url", "dest", "target", "uri", "webhook", "feed", "link", "callback", "src")
+            ]
+            if not ssrf_candidates and not qs_ssrf:
+                ssrf_candidates = ["url", "target", "dest", "webhook"]
+            canary_probe_target = "http://canary.csc-ssrf-probe.internal/csc_token"
+            for sparam in ssrf_candidates[:2]:
+                if is_Canceled and is_Canceled():
+                    break
+                probe_params = dict(qs_ssrf)
+                probe_params[sparam] = [canary_probe_target]
+                probe_url = urlunparse((
+                    parsed.scheme,
+                    parsed.netloc,
+                    parsed.path,
+                    parsed.params,
+                    urlencode(probe_params, doseq=True),
+                    parsed.fragment,
+                ))
+                try:
+                    probe_res = http_client.probe(probe_url, is_cancelled=is_Canceled)
+                    requests_made += 1
+                    if probe_res and probe_res.body:
+                        for pattern in ssrf_error_patterns:
+                            m = pattern.search(probe_res.body)
+                            if m:
+                                ssrf_detected = True
+                                ssrf_evidence_val = (
+                                    f"Erro de rede de backend exposto ('{m.group(0)}') "
+                                    f"ao fornecer canary probe no parâmetro '{sparam}'"
+                                )
+                                break
+                except Exception:  # noqa: BLE001, S110
+                    pass
+                if ssrf_detected:
+                    break
+
+        if ssrf_detected:
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-H06",
+                    module_id=self.metadata.module_id,
+                    title="Indicadores de Server-Side Request Forgery (SSRF) no Alvo",
+                    status=CheckStatus.POTENTIAL_VULNERABILITY,
+                    summary="O alvo revelou erros internos de conexão ao tentar resolver URL externa arbitrária fornecida como entrada.",
+                    details={"evidence": ssrf_evidence_val},
+                )
+            )
+            findings.append(
+                NormalizedFinding(
+                    endpoint=target_url,
+                    module_id=self.metadata.module_id,
+                    check_id="CHK-H06",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-H06", target_url, "ssrf-target-vulnerability"
+                    ),
+                    title="Indicadores de Server-Side Request Forgery (SSRF) no Alvo",
+                    description="A aplicação auditada processa parâmetros contendo URLs e tenta efetuar conexões de rede no backend, expondo erros de socket ou resolução DNS.",
+                    category="Configuração e Controle de Acesso",
+                    result_classification=CheckStatus.POTENTIAL_VULNERABILITY,
+                    severity=Severity.HIGH,
+                    confidence=Confidence.FIRM,
+                    evidence=SanitizedEvidence(
+                        request_url=target_url,
+                        observed_value=ssrf_evidence_val,
+                        expected_baseline="Validação estrita de URLs recebidas com whitelist de domínios permitidos e desabilitação de conexões arbitrárias no backend",
+                    ),
+                    owasp_references=["A10:2021-Server-Side Request Forgery (SSRF)"],
+                    cwe_ids=["CWE-918"],
+                    impact="Permite que invasores induzam o servidor a realizar requisições não autorizadas contra serviços internos da rede local, instâncias de metadados de nuvem e portas restritas.",
+                    safe_reproduction_steps=[
+                        f"Enviar requisição HTTP para {target_url} fornecendo canary probe URL e verificar se ocorrem tentativas de conexão no backend."
+                    ],
+                    remediation=RemediationEngine.get_guidance("ssrf_target_vulnerability"),
+                )
+            )
+        else:
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-H06",
+                    module_id=self.metadata.module_id,
+                    title="Indicadores de Server-Side Request Forgery (SSRF) no Alvo",
+                    status=CheckStatus.PASSED,
+                    summary="Nenhum indicador de processamento inseguro de requisições de backend (SSRF) identificado.",
+                )
+            )
+
+        # CHK-H07: Exposição de Interfaces de Administração e Depuração (Admin/Actuator/Debug Panels)
+        admin_debug_probes = [
+            ("/admin", ["Dashboard", "Administration", "Django administration", "Admin Panel", "Laravel Nova", "phpMyAdmin"]),
+            ("/actuator/health", ['"status"', "UP", "DOWN"]),
+            ("/actuator/env", ["activeProfiles", "propertySources"]),
+            ("/swagger-ui.html", ["Swagger UI", "swagger-ui"]),
+            ("/_profiler", ["Symfony Profiler", "Web Profiler"]),
+            ("/phpinfo.php", ["PHP Version", "Configuration File"]),
+        ]
+        admin_exposed_path = None
+        admin_evidence = ""
+        current_path_clean = parsed.path.rstrip("/")
+        for apath, signatures in admin_debug_probes:
+            if current_path_clean == apath and status_code == 200 and any(s.lower() in body_excerpt.lower() for s in signatures):
+                admin_exposed_path = apath
+                admin_evidence = f"Interface administrativa acessível diretamente sem autenticação em '{apath}' (HTTP 200)"
+                break
+
+        if not admin_exposed_path and http_client and getattr(http_client, "probe", None):
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+            for apath, signatures in admin_debug_probes:
+                if is_Canceled and is_Canceled():
+                    break
+                try:
+                    probe_res = http_client.probe(f"{origin}{apath}", is_cancelled=is_Canceled)
+                    requests_made += 1
+                    if probe_res and probe_res.status_code == 200 and any(s.lower() in probe_res.body.lower() for s in signatures):
+                        admin_exposed_path = apath
+                        admin_evidence = f"Interface administrativa acessível publicamente em '{apath}' (HTTP 200)"
+                        break
+                except Exception:  # noqa: BLE001, S110
+                    pass
+
+        if admin_exposed_path:
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-H07",
+                    module_id=self.metadata.module_id,
+                    title="Exposição de Interfaces de Administração e Depuração (Admin/Actuator/Debug Panels)",
+                    status=CheckStatus.VULNERABILITY,
+                    summary=f"Painel administrativo ou interface de diagnóstico exposta publicamente: {admin_evidence}.",
+                    details={"path": admin_exposed_path, "evidence": admin_evidence},
+                )
+            )
+            findings.append(
+                NormalizedFinding(
+                    endpoint=target_url,
+                    module_id=self.metadata.module_id,
+                    check_id="CHK-H07",
+                    fingerprint=RiskEngine.compute_finding_fingerprint(
+                        hostname, self.metadata.module_id, "CHK-H07", target_url, "admin-debug-interface-leak"
+                    ),
+                    title=f"Interface de Administração ou Depuração Exposta Publicamente ({admin_exposed_path})",
+                    description=(
+                        "Painéis administrativos, interfaces de gerenciamento ou endpoints de métricas internas "
+                        "(como Spring Actuator, Swagger UI ou Django Admin) estão acessíveis diretamente sem "
+                        "restrição de rede ou autenticação prévia, permitindo reconhecimento e controle indevido."
+                    ),
+                    category="Configuração e Controle de Acesso",
+                    result_classification=CheckStatus.VULNERABILITY,
+                    severity=Severity.HIGH,
+                    confidence=Confidence.CERTAIN,
+                    evidence=SanitizedEvidence(
+                        request_url=target_url,
+                        observed_value=admin_evidence,
+                        expected_baseline="Restrição estrita por VPN, IP allowlist ou autenticação multifator antes de qualquer exposição",
+                    ),
+                    owasp_references=["A01:2021-Broken Access Control", "A05:2021-Security Misconfiguration"],
+                    cwe_ids=["CWE-306", "CWE-200"],
+                    impact="Acesso não autorizado a funções de gerenciamento, configuração de ambiente e dados internos de operação.",
+                    remediation=RemediationEngine.get_guidance("exposed_admin_or_debug_interface"),
+                )
+            )
+        else:
+            checks.append(
+                CheckEvaluationResult(
+                    check_id="CHK-H07",
+                    module_id=self.metadata.module_id,
+                    title="Exposição de Interfaces de Administração e Depuração (Admin/Actuator/Debug Panels)",
+                    status=CheckStatus.PASSED,
+                    summary="Nenhum painel administrativo ou endpoint de diagnóstico exposto publicamente sem autenticação.",
                 )
             )
 

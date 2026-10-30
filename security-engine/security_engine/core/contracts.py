@@ -75,6 +75,7 @@ class ScanProfileType(str, Enum):
     AUTHENTICATED = "AUTHENTICATED"
     API = "API"
     DEEP_ASSESSMENT = "DEEP_ASSESSMENT"
+    DEEP_PENTEST = "DEEP_PENTEST"
     CUSTOM = "CUSTOM"
 
 

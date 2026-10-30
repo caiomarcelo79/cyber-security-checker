@@ -872,6 +872,500 @@ REMEDIATION_CATALOG: dict[str, RemediationGuidance] = {
         how_to_validate="Submeta o formulário sem o token anti-CSRF e confirme que o servidor rejeita com HTTP 403 Forbidden.",
         references=["OWASP CSRF Prevention Cheat Sheet", "OWASP ASVS 5.0 V4.2", "CWE-352: Cross-Site Request Forgery (CSRF)"],
     ),
+    "path_traversal_lfi": RemediationGuidance(
+        remediation_id="path_traversal_lfi",
+        version="1.0.0",
+        what_was_identified="A aplicação permite que parâmetros de arquivo acessem diretórios arbitrários do sistema de arquivos via sequências de Path Traversal (../ ou ..\\).",
+        why_it_is_dangerous="Permite que invasores leiam arquivos sensíveis do sistema operacional (/etc/passwd, configurações, chaves privadas, código-fonte e credenciais).",
+        how_it_was_detected="Envio de sequências controladas de traversals em parâmetros de rota/arquivo e detecção de conteúdo característico do sistema.",
+        how_to_fix="Nunca passe entradas fornecidas pelo usuário diretamente para funções de sistema de arquivos. Utilize listas estritas de permissão (whitelists), extraia apenas o nome do arquivo com os.path.basename / path.basename, resolva o caminho absoluto e confirme que ele pertence ao diretório base pretendido.",
+        secure_examples=[
+            StackCodeExample(
+                technology="Python (Pathlib)",
+                language="python",
+                description="Validação de caminho seguro contra Path Traversal:",
+                code=(
+                    "from pathlib import Path\n\n"
+                    "BASE_DIR = Path('/var/www/uploads').resolve()\n\n"
+                    "def get_safe_file(filename: str) -> Path:\n"
+                    "    safe_name = Path(filename).name  # Extrai apenas o basename\n"
+                    "    target_path = (BASE_DIR / safe_name).resolve()\n"
+                    "    if not target_path.is_relative_to(BASE_DIR) or not target_path.is_file():\n"
+                    "        raise ValueError('Acesso negado: caminho fora do escopo permitido.')\n"
+                    "    return target_path"
+                ),
+            ),
+            StackCodeExample(
+                technology="Node.js",
+                language="typescript",
+                description="Prevenção de directory traversal em Node.js:",
+                code=(
+                    "import path from 'path';\n\n"
+                    "const BASE_DIR = path.resolve('/var/www/uploads');\n\n"
+                    "function getSafePath(userInput: string): string {\n"
+                    "  const safeName = path.basename(userInput);\n"
+                    "  const fullPath = path.resolve(BASE_DIR, safeName);\n"
+                    "  if (!fullPath.startsWith(BASE_DIR)) {\n"
+                    "    throw new Error('Acesso a arquivo negado.');\n"
+                    "  }\n"
+                    "  return fullPath;\n"
+                    "}"
+                ),
+            ),
+        ],
+        how_to_validate="Envie requisições contendo '../../../../etc/passwd' e verifique se o servidor retorna HTTP 400 ou 404 sem exibir conteúdo do sistema.",
+        references=[
+            "OWASP WSTG - WSTG-INPV-12 (Testing for Path Traversal)",
+            "OWASP ASVS 5.0 - V12.3.1 (File Execution and Path Traversal)",
+            "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')",
+        ],
+    ),
+    "os_command_injection": RemediationGuidance(
+        remediation_id="os_command_injection",
+        version="1.0.0",
+        what_was_identified="A aplicação executa comandos de sistema operacional interpolando entradas do usuário sem validação ou escape estrito.",
+        why_it_is_dangerous="Permite que atacantes executem comandos arbitrários no servidor com os privilégios do processo web, podendo comprometer integralmente o host.",
+        how_it_was_detected="Injeção não destrutiva de delimitadores de comando (; | &) com canário inofensivo de eco e inspeção da resposta.",
+        how_to_fix="Evite chamar o shell do sistema operacional. Se indispensável executar binários externos, passe os argumentos como lista estruturada (sem shell=True / sem system()) e aplique validação estrita por expressões regulares na entrada.",
+        secure_examples=[
+            StackCodeExample(
+                technology="Python (subprocess)",
+                language="python",
+                description="Execução segura sem shell:",
+                code=(
+                    "import subprocess\n"
+                    "import re\n\n"
+                    "# 1. Validação estrita por whitelist ou regex\n"
+                    "if not re.match(r'^[a-zA-Z0-9_-]+$', user_arg):\n"
+                    "    raise ValueError('Caractere inválido')\n\n"
+                    "# 2. Argumentos estruturados como lista e shell=False (padrão seguro)\n"
+                    "res = subprocess.run(['/usr/bin/tool', user_arg], capture_output=True, text=True, check=True)"
+                ),
+            ),
+            StackCodeExample(
+                technology="Node.js (child_process)",
+                language="typescript",
+                description="Uso seguro de execFile em vez de exec:",
+                code=(
+                    "import { execFile } from 'child_process';\n\n"
+                    "// execFile não invoca o shell /bin/sh por padrão, prevenindo injeções de comando\n"
+                    "execFile('/usr/bin/tool', [validatedInput], (error, stdout) => {\n"
+                    "  if (error) throw error;\n"
+                    "  console.log(stdout);\n"
+                    "});"
+                ),
+            ),
+        ],
+        how_to_validate="Envie caracteres delimitadores (';' ou '|') e confirme que a aplicação os rejeita sem repassá-los para um shell.",
+        references=[
+            "OWASP WSTG - WSTG-INPV-12 (Testing for Command Injection)",
+            "OWASP ASVS 5.0 - V5.3.8 (Command Injection Prevention)",
+            "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')",
+        ],
+    ),
+    "ssrf_target_vulnerability": RemediationGuidance(
+        remediation_id="ssrf_target_vulnerability",
+        version="1.0.0",
+        what_was_identified="A aplicação aceita URLs fornecidas por usuários em parâmetros e realiza requisições HTTP internas sem validação estrita de escopo.",
+        why_it_is_dangerous="Permite que invasores utilizem o servidor como proxy para explorar redes internas, serviços locais, metadados de nuvem (169.254.169.254) ou serviços em localhost.",
+        how_it_was_detected="Sondagem de parâmetros de URL/webhook com alvos canários de teste e análise da resposta ou erros gerados pela aplicação.",
+        how_to_fix="Valide e restrinja todas as URLs a esquemas permitidos (somente https://). Resolva o DNS antes da requisição e bloqueie endereços de loopback (127.0.0.0/8), redes privadas RFC 1918 e metadados de nuvem. Desative o seguimento de redirecionamentos.",
+        secure_examples=[
+            StackCodeExample(
+                technology="Python (httpx / socket)",
+                language="python",
+                description="Validação defensiva de destino contra SSRF:",
+                code=(
+                    "import ipaddress\n"
+                    "import socket\n"
+                    "from urllib.parse import urlparse\n\n"
+                    "def validate_ssrf_destination(url: str):\n"
+                    "    parsed = urlparse(url)\n"
+                    "    if parsed.scheme not in ('https',):\n"
+                    "        raise ValueError('Apenas HTTPS permitido')\n"
+                    "    ip = socket.gethostbyname(parsed.hostname)\n"
+                    "    ip_obj = ipaddress.ip_address(ip)\n"
+                    "    if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local:\n"
+                    "        raise ValueError('Endereço IP interno proibido')"
+                ),
+            )
+        ],
+        how_to_validate="Forneça uma URL apontando para 'http://169.254.169.254' ou 'http://127.0.0.1' e confirme que o sistema rejeita com erro de validação.",
+        references=[
+            "OWASP Top 10 - A10:2021-Server-Side Request Forgery (SSRF)",
+            "OWASP ASVS 5.0 - V12.6.1 (SSRF Protection)",
+            "CWE-918: Server-Side Request Forgery (SSRF)",
+        ],
+    ),
+    "cors_arbitrary_origin": RemediationGuidance(
+        remediation_id="cors_arbitrary_origin",
+        version="1.0.0",
+        what_was_identified="A API reflete cegamente origens não confiáveis no cabeçalho Access-Control-Allow-Origin em conjunto com Access-Control-Allow-Credentials: true.",
+        why_it_is_dangerous="Permite que scripts maliciosos executados em qualquer domínio leiam dados autenticados e confidenciais da API via requisições com credenciais.",
+        how_it_was_detected="Envio de cabeçalho 'Origin: https://attacker.csc-test.internal' e verificação de reflexão no cabeçalho de resposta CORS com credenciais habilitadas.",
+        how_to_fix="Defina uma lista explícita de origens permitidas (whitelist estrita). Nunca reflita dinamicamente o cabeçalho Origin da requisição nem configure '*' quando credenciais (cookies/tokens de sessão) forem permitidas.",
+        secure_examples=[
+            StackCodeExample(
+                technology="FastAPI (Python)",
+                language="python",
+                description="Configuração segura de CORS em FastAPI:",
+                code=(
+                    "from fastapi.middleware.cors import CORSMiddleware\n\n"
+                    "ALLOWED_ORIGINS = ['https://app.minhaempresa.com.br']\n\n"
+                    "app.add_middleware(\n"
+                    "    CORSMiddleware,\n"
+                    "    allow_origins=ALLOWED_ORIGINS,\n"
+                    "    allow_credentials=True,\n"
+                    "    allow_methods=['GET', 'POST', 'PUT', 'DELETE'],\n"
+                    "    allow_headers=['Authorization', 'Content-Type'],\n"
+                    ")"
+                ),
+            )
+        ],
+        how_to_validate="Envie requisição com 'Origin: https://evil.com' e confirme que o cabeçalho 'Access-Control-Allow-Origin' não reflete a origem maliciosa.",
+        references=[
+            "OWASP API Security Top 10 - API7:2023 Server Side Request Forgery & API8:2023 Security Misconfiguration",
+            "CWE-346: Origin Validation Error",
+            "CWE-942: Permissive Cross-domain Policy with Untrusted Domains",
+        ],
+    ),
+    "http_dangerous_methods": RemediationGuidance(
+        remediation_id="http_dangerous_methods",
+        version="1.0.0",
+        what_was_identified="O servidor web ou API possui métodos HTTP perigosos habilitados publicamente (ex: TRACE, TRACK, PUT ou DELETE não autenticados).",
+        why_it_is_dangerous="O método TRACE permite Cross-Site Tracing (XST), refletindo cabeçalhos e cookies HttpOnly. Métodos PUT/DELETE sem controle podem permitir upload ou exclusão arbitrária de recursos.",
+        how_it_was_detected="Envio de requisição com método TRACE e verificação de resposta HTTP 200 refletindo cabeçalhos da requisição.",
+        how_to_fix="Desative explicitamente o método TRACE e restrinja PUT e DELETE no servidor web e proxy reverso.",
+        secure_examples=[
+            StackCodeExample(
+                technology="Nginx",
+                language="nginx",
+                description="Bloquear métodos não autorizados no Nginx:",
+                code=(
+                    "if ($request_method !~ ^(GET|HEAD|POST|OPTIONS)$ ) {\n"
+                    "    return 405;\n"
+                    "}"
+                ),
+            ),
+            StackCodeExample(
+                technology="Apache",
+                language="apache",
+                description="Desabilitar TRACE no Apache:",
+                code="TraceEnable off",
+            ),
+        ],
+        how_to_validate="Execute 'curl -X TRACE https://<alvo>' e confirme que o servidor responde com HTTP 405 Method Not Allowed.",
+        references=[
+            "OWASP WSTG - WSTG-CONF-06 (Test HTTP Methods)",
+            "CWE-650: Trusting HTTP Permission Methods on the Server Side",
+            "CWE-200: Exposure of Sensitive Information to an Unauthorized Actor",
+        ],
+    ),
+    "credentials_in_query_string": RemediationGuidance(
+        remediation_id="credentials_in_query_string",
+        version="1.0.0",
+        what_was_identified=(
+            "O endpoint ou formulário aceita ou transmite dados confidenciais de autenticação "
+            "(como senhas, chaves de API ou segredos) via parâmetros na URL (Query String)."
+        ),
+        why_it_is_dangerous=(
+            "Parâmetros na URL são registrados em texto claro no histórico do navegador, em logs de "
+            "servidores web, em firewalls/proxies reversos e no cabeçalho Referer ao navegar para links externos. "
+            "Isso resulta no vazamento passivo e massivo de credenciais sem necessidade de invasão ativa."
+        ),
+        how_it_was_detected=(
+            "Inspeção de formulários de autenticação ou URLs que contêm parâmetros associados a segredos "
+            "('password', 'pwd', 'pass', 'token', 'secret', 'api_key') submetidos via método GET."
+        ),
+        how_to_fix=(
+            "1. Migre os endpoints de autenticação e emissão de tokens exclusivamente para o método HTTP POST.\n"
+            "2. Transmita credenciais no corpo da requisição codificadas em JSON ('application/json') ou formulário "
+            "('application/x-www-form-urlencoded') sobre canal criptografado TLS.\n"
+            "3. No backend, rejeite imediatamente requisições GET contendo parâmetros de senha retornando HTTP 405 ou 400.\n"
+            "4. Efetue a purga imediata de logs de acesso que possam conter URLs antigas com credenciais."
+        ),
+        secure_examples=[
+            StackCodeExample(
+                technology="Python (FastAPI)",
+                language="python",
+                description="Receber credenciais exclusivamente no corpo da requisição POST:",
+                code=(
+                    "@app.post('/api/v1/auth/login')\n"
+                    "def login(payload: LoginRequest):\n"
+                    "    # Credenciais trafegam no body JSON criptografado via TLS\n"
+                    "    user = authenticate(payload.username, payload.password)\n"
+                    "    return {'access_token': create_token(user)}"
+                ),
+            ),
+            StackCodeExample(
+                technology="Node.js (Express)",
+                language="javascript",
+                description="Consumir credenciais via req.body em rota POST:",
+                code=(
+                    "app.post('/api/auth/login', express.json(), (req, res) => {\n"
+                    "  const { username, password } = req.body; // Nunca utilizar req.query\n"
+                    "  const user = authenticateUser(username, password);\n"
+                    "  res.json({ token: generateToken(user) });\n"
+                    "});"
+                ),
+            ),
+        ],
+        how_to_validate=(
+            "Submeta uma requisição 'curl -i https://<alvo>/login?password=teste' e verifique se o servidor "
+            "recusa a operação com HTTP 405 Method Not Allowed ou HTTP 400 Bad Request."
+        ),
+        references=[
+            "OWASP Top 10 2021 - A07:2021 Identification and Authentication Failures",
+            "CWE-598: Use of GET Request Method With Sensitive Query Strings",
+            "OWASP ASVS 5.0 - V2.10.1 (Sensitive Data in URLs)",
+        ],
+    ),
+    "missing_cookie_security_prefixes": RemediationGuidance(
+        remediation_id="missing_cookie_security_prefixes",
+        version="1.0.0",
+        what_was_identified=(
+            "Os cookies críticos de sessão ou autenticação não utilizam os prefixos de segurança "
+            "padronizados pelo RFC 6265bis ('__Host-' ou '__Secure-')."
+        ),
+        why_it_is_dangerous=(
+            "Sem o prefixo '__Host-', subdomínios vulneráveis da mesma organização podem forçar a injeção "
+            "ou sobrescrita de cookies no navegador do cliente (Cookie Tossing / Cookie Jar Overflow), "
+            "viabilizando ataques de fixação de sessão e desvio de autenticação."
+        ),
+        how_it_was_detected=(
+            "Inspeção dos nomes de cookies enviados no cabeçalho 'Set-Cookie' associados a sessão ou autenticação, "
+            "verificando a ausência do prefixo '__Host-' ou '__Secure-'."
+        ),
+        how_to_fix=(
+            "1. Renomeie o cookie de sessão para utilizar o prefixo '__Host-' (exemplo: '__Host-session').\n"
+            "2. Ao utilizar o prefixo '__Host-', o navegador exige compulsoriamente: flag 'Secure', atributo "
+            "'Path=/' e a ausência explícita do atributo 'Domain' (garantindo que fique restrito apenas ao host emitente).\n"
+            "3. Para cookies que precisam ser compartilhados com subdomínios confiáveis, utilize o prefixo '__Secure-' "
+            "com a flag 'Secure'."
+        ),
+        secure_examples=[
+            StackCodeExample(
+                technology="Python (FastAPI / Starlette)",
+                language="python",
+                description="Emitir cookie de sessão com prefixo __Host-:",
+                code=(
+                    "response.set_cookie(\n"
+                    "    key='__Host-session',\n"
+                    "    value=session_id,\n"
+                    "    secure=True,\n"
+                    "    httponly=True,\n"
+                    "    samesite='lax',\n"
+                    "    path='/',\n"
+                    "    domain=None,  # Obrigatório None para conformidade com __Host-\n"
+                    ")"
+                ),
+            ),
+            StackCodeExample(
+                technology="Node.js (Express / express-session)",
+                language="javascript",
+                description="Configurar nome com prefixo __Host- no express-session:",
+                code=(
+                    "app.use(session({\n"
+                    "  name: '__Host-sessionId',\n"
+                    "  cookie: {\n"
+                    "    secure: true,\n"
+                    "    httpOnly: true,\n"
+                    "    sameSite: 'lax',\n"
+                    "    path: '/'\n"
+                    "  }\n"
+                    "}));"
+                ),
+            ),
+        ],
+        how_to_validate=(
+            "Inspecione a resposta HTTP do login e certifique-se de que 'Set-Cookie' contém "
+            "'__Host-session=...; Secure; HttpOnly; SameSite=Lax; Path=/;'. O navegador rejeitará o cookie "
+            "se qualquer uma dessas restrições for violada."
+        ),
+        references=[
+            "RFC 6265bis - Cookies: HTTP State Management Mechanism",
+            "OWASP WSTG - WSTG-SESS-02 (Testing for Cookies Attributes)",
+            "CWE-614: Sensitive Cookie in HTTPS Session Without 'Secure' Attribute",
+            "CWE-1275: Sensitive Cookie with Improper SameSite Attribute",
+        ],
+    ),
+    "http_request_smuggling_desync_risk": RemediationGuidance(
+        remediation_id="http_request_smuggling_desync_risk",
+        version="1.0.0",
+        what_was_identified=(
+            "O servidor web ou proxy reverso aceitou requisições contendo cabeçalhos de transferência ambíguos "
+            "ou conflitantes ('Transfer-Encoding' junto com 'Content-Length' ou múltiplos 'Content-Length' divergentes)."
+        ),
+        why_it_is_dangerous=(
+            "Discrepâncias na interpretação do tamanho do corpo HTTP entre proxies reversos (como Cloudflare, Nginx, AWS ALB) "
+            "e servidores de aplicação permitem ataques de HTTP Request Smuggling / Desync. Isso viabiliza "
+            "envenenamento de cache, sequestro de sessões de outros usuários e bypass de controles perimetrais de WAF."
+        ),
+        how_it_was_detected=(
+            "Envio de sondagem inofensiva com cabeçalhos conflitantes de enquadramento (RFC 7230 Seção 3.3.3) "
+            "e verificação da ausência de normalização ou rejeição estrita (HTTP 400)."
+        ),
+        how_to_fix=(
+            "1. Adote HTTP/2 ou HTTP/3 de ponta a ponta (end-to-end) entre o cliente, proxies e servidores de backend, "
+            "eliminando a ambiguidade de delimitadores de texto do HTTP/1.1.\n"
+            "2. No Nginx, garanta que 'underscores_in_headers off' e 'ignore_invalid_headers on' estejam habilitados.\n"
+            "3. Rejeite categoricamente com HTTP 400 Bad Request requisições que contenham cabeçalhos de enquadramento conflitantes."
+        ),
+        secure_examples=[
+            StackCodeExample(
+                technology="Nginx",
+                language="nginx",
+                description="Configurações preventivas contra desync no Nginx:",
+                code=(
+                    "# Descartar requisições com cabeçalhos inválidos\n"
+                    "ignore_invalid_headers on;\n"
+                    "underscores_in_headers off;\n"
+                    "# Utilizar HTTP/2 no frontend e conexões HTTP/1.1 estritas com upstream\n"
+                    "proxy_http_version 1.1;"
+                ),
+            ),
+            StackCodeExample(
+                technology="HAProxy",
+                language="haproxy",
+                description="Modo estrito de conformidade HTTP no HAProxy:",
+                code=(
+                    "frontend http_front\n"
+                    "    mode http\n"
+                    "    option http-server-close\n"
+                    "    http-response strict-mode on"
+                ),
+            ),
+        ],
+        how_to_validate=(
+            "Envie requisição de teste com 'Transfer-Encoding: chunked' e 'Content-Length: 0' e confirme "
+            "que o servidor intermediário normaliza o enquadramento ou responde com HTTP 400 Bad Request."
+        ),
+        references=[
+            "RFC 9112 - HTTP/1.1 Section 6.3 (Message Body Length)",
+            "OWASP WSTG - WSTG-INPV-15 (Testing for HTTP Request Smuggling)",
+            "CWE-444: Inconsistent Interpretation of HTTP Requests",
+        ],
+    ),
+    "insecure_jwt_token_configuration": RemediationGuidance(
+        remediation_id="insecure_jwt_token_configuration",
+        version="1.0.0",
+        what_was_identified=(
+            "Tokens JWT identificados na API apresentam configurações permissivas de segurança, tais como "
+            "algoritmo 'none' habilitado, ausência de claim de expiração ('exp') ou uso de segredo simétrico com baixa entropia."
+        ),
+        why_it_is_dangerous=(
+            "Se o algoritmo 'none' for aceito pela biblioteca receptora, um invasor pode forjar qualquer "
+            "identidade de usuário (inclusive administradores) sem possuir o segredo de assinatura. "
+            "A falta de expiração permite o uso indefinido de tokens comprometidos."
+        ),
+        how_it_was_detected=(
+            "Inspeção estática e decodificação do cabeçalho e payload de tokens JWT retornados pela aplicação, "
+            "verificando o valor de 'alg', formato e presença obrigatória da claim 'exp'."
+        ),
+        how_to_fix=(
+            "1. Configure a validação do JWT para aceitar explicitamente apenas o algoritmo pretendido "
+            "(ex: 'HS256' ou 'RS256'), rejeitando terminantemente o algoritmo 'none'.\n"
+            "2. Utilize segredos simétricos com no mínimo 256 bits de entropia gerados criptograficamente.\n"
+            "3. Inclua compulsoriamente a claim 'exp' e valide-a com tolerância temporal máxima de poucos segundos."
+        ),
+        secure_examples=[
+            StackCodeExample(
+                technology="Python (PyJWT)",
+                language="python",
+                description="Validação segura com algoritmo explícito e exigência de expiração:",
+                code=(
+                    "import jwt\n\n"
+                    "payload = jwt.decode(\n"
+                    "    token,\n"
+                    "    SECRET_KEY,\n"
+                    "    algorithms=['HS256'],  # Algoritmo único explicitamente permitido\n"
+                    "    options={'require': ['exp', 'iat', 'sub']},\n"
+                    ")"
+                ),
+            ),
+            StackCodeExample(
+                technology="Node.js (jsonwebtoken)",
+                language="javascript",
+                description="Validar algoritmos e expiração no jsonwebtoken:",
+                code=(
+                    "const jwt = require('jsonwebtoken');\n\n"
+                    "const decoded = jwt.verify(token, process.env.JWT_SECRET, {\n"
+                    "  algorithms: ['HS256'], // Impede bypass com alg: none\n"
+                    "  maxAge: '1h'\n"
+                    "});"
+                ),
+            ),
+        ],
+        how_to_validate=(
+            "Envie uma requisição para a API autenticada com um token contendo cabeçalho '{\"alg\":\"none\"}' "
+            "e confirme que a API responde com HTTP 401 Unauthorized."
+        ),
+        references=[
+            "OWASP API Security Top 10 - API2:2023 Broken Authentication",
+            "CWE-345: Insufficient Verification of Data Authenticity",
+            "CWE-347: Improper Verification of Cryptographic Signature",
+            "RFC 7519 - JSON Web Token (JWT)",
+        ],
+    ),
+    "exposed_admin_or_debug_interface": RemediationGuidance(
+        remediation_id="exposed_admin_or_debug_interface",
+        version="1.0.0",
+        what_was_identified=(
+            "Painel de administração, console de depuração técnica ou endpoint de diagnóstico "
+            "(como /admin, /actuator, /swagger-ui.html, /phpmyadmin) está exposto publicamente com status HTTP 200 "
+            "sem exigir autenticação prévia."
+        ),
+        why_it_is_dangerous=(
+            "Interfaces administrativas públicas expõem métricas internas, variáveis de ambiente (incluindo senhas de banco), "
+            "endpoints de configuração e recursos com privilégios elevados, servindo de vetor direto para comprometimento total do sistema."
+        ),
+        how_it_was_detected=(
+            "Sondagem HTTP não destrutiva de caminhos administrativos e de instrumentação conhecidos, "
+            "identificando resposta HTTP 200 com assinaturas de consoles ou páginas de gestão desprotegidas."
+        ),
+        how_to_fix=(
+            "1. Bloqueie o acesso público às rotas administrativas utilizando regras de firewall ou proxy reverso "
+            "para permitir apenas conexões oriundas de endereços IP confiáveis ou redes VPN internas.\n"
+            "2. Desabilite consoles de depuração e instrumentação em ambientes de produção (ex: endpoints do Spring Boot Actuator).\n"
+            "3. Implemente autenticação robusta com múltiplos fatores (MFA) para qualquer rota administrativa legítima."
+        ),
+        secure_examples=[
+            StackCodeExample(
+                technology="Nginx",
+                language="nginx",
+                description="Restringir acesso a rota administrativa por IP no Nginx:",
+                code=(
+                    "location /admin/ {\n"
+                    "    # Permitir apenas faixa de IP corporativa / VPN\n"
+                    "    allow 10.0.0.0/8;\n"
+                    "    allow 192.168.1.0/24;\n"
+                    "    deny all;\n"
+                    "    proxy_pass http://backend;\n"
+                    "}"
+                ),
+            ),
+            StackCodeExample(
+                technology="Spring Boot (application.properties)",
+                language="properties",
+                description="Desabilitar endpoints perigosos do Actuator em produção:",
+                code=(
+                    "# Expor apenas o health check básico publicamente\n"
+                    "management.endpoints.web.exposure.include=health,info\n"
+                    "management.endpoints.web.exposure.exclude=env,beans,configprops,heapdump"
+                ),
+            ),
+        ],
+        how_to_validate=(
+            "Acesse a URL externa a partir de uma rede não autorizada e confirme que o servidor responde com "
+            "HTTP 403 Forbidden ou HTTP 404 Not Found."
+        ),
+        references=[
+            "OWASP Top 10 2021 - A01:2021 Broken Access Control",
+            "CWE-306: Missing Authentication for Critical Function",
+            "CWE-200: Exposure of Sensitive Information to an Unauthorized Actor",
+            "OWASP ASVS 5.0 - V4.1 (Access Control Architecture)",
+        ],
+    ),
 }
 
 
