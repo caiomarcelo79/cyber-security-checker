@@ -1366,6 +1366,530 @@ REMEDIATION_CATALOG: dict[str, RemediationGuidance] = {
             "OWASP ASVS 5.0 - V4.1 (Access Control Architecture)",
         ],
     ),
+    "missing_subresource_integrity_sri": RemediationGuidance(
+        remediation_id="missing_subresource_integrity_sri",
+        version="1.0.0",
+        what_was_identified=(
+            "Scripts ou folhas de estilo carregados de origens externas (CDNs de terceiros) não possuem o atributo "
+            "Subresource Integrity ('integrity=sha384-...') nem cabeçalhos de isolamento Cross-Origin (COOP/CORP)."
+        ),
+        why_it_is_dangerous=(
+            "Se uma CDN ou servidor terceiro for comprometido ou sofrer DNS hijacking, scripts maliciosos "
+            "serão executados diretamente no contexto de origem da aplicação (Supply Chain Attack / Magecart)."
+        ),
+        how_it_was_detected=(
+            "Inspeção das tags '<script src>' e '<link rel=\"stylesheet\">' apontando para domínios externos "
+            "sem atributo 'integrity' SHA-256/384/512 válido."
+        ),
+        how_to_fix=(
+            "1. Gere o hash criptográfico (SHA-384) de todos os recursos estáticos externos e adicione os "
+            "atributos 'integrity' e 'crossorigin=\"anonymous\"'.\n"
+            "2. Sempre que possível, hospede bibliotecas críticas localmente (self-hosted) sob controle de integridade.\n"
+            "3. Adicione cabeçalhos de isolamento Cross-Origin-Opener-Policy e Cross-Origin-Resource-Policy."
+        ),
+        secure_examples=[
+            StackCodeExample(
+                technology="HTML5 (SRI)",
+                language="html",
+                description="Carregar script externo com verificação criptográfica SRI:",
+                code=(
+                    '<script src="https://cdn.exemplo.com/lib/app.min.js"\n'
+                    '        integrity="sha384-oqVuAfXRKap7fdgcCY5uykM6+R9GqQ8K/uxy9rx7HNQlGYl1kPzQho1wx4JwY8wC"\n'
+                    '        crossorigin="anonymous"></script>'
+                ),
+            ),
+            StackCodeExample(
+                technology="Nginx",
+                language="nginx",
+                description="Adicionar cabeçalhos COOP e CORP:",
+                code=(
+                    'add_header Cross-Origin-Opener-Policy "same-origin" always;\n'
+                    'add_header Cross-Origin-Resource-Policy "same-origin" always;'
+                ),
+            ),
+        ],
+        how_to_validate=(
+            "Inspecione o HTML renderizado e confirme que todas as tags <script> e <link> de CDNs externas "
+            "possuem 'integrity=\"sha384-...\"' e 'crossorigin=\"anonymous\"'."
+        ),
+        references=[
+            "OWASP Top 10 2021 - A08:2021 Software and Data Integrity Failures",
+            "CWE-353: Missing Support for Integrity Check",
+            "W3C Subresource Integrity Specification",
+        ],
+    ),
+    "client_side_token_or_secret_exposure": RemediationGuidance(
+        remediation_id="client_side_token_or_secret_exposure",
+        version="1.0.0",
+        what_was_identified=(
+            "Foram detectados padrões de armazenamento de tokens de sessão em Web Storage "
+            "('localStorage'/'sessionStorage') ou credenciais/chaves de API hardcoded no código cliente."
+        ),
+        why_it_is_dangerous=(
+            "Tokens armazenados em localStorage/sessionStorage são acessíveis por qualquer JavaScript executado "
+            "na página (incluindo scripts de terceiros ou XSS), e chaves hardcoded em HTML/JS ficam expostas a qualquer visitante."
+        ),
+        how_it_was_detected=(
+            "Análise estática determinística do corpo HTML/JS por chamadas de persistência de tokens em Web Storage "
+            "e assinaturas conhecidas de chaves privadas e tokens de provedores."
+        ),
+        how_to_fix=(
+            "1. Armazene tokens de sessão exclusivamente em cookies 'HttpOnly', 'Secure' e 'SameSite=Lax/Strict'.\n"
+            "2. Remova imediatamente qualquer chave privada, secret ou API key do código frontend e rotacione as credenciais expostas.\n"
+            "3. Utilize um Backend-for-Frontend (BFF) para intermediar chamadas que exigem segredos."
+        ),
+        secure_examples=[
+            StackCodeExample(
+                technology="Python (FastAPI)",
+                language="python",
+                description="Emitir sessão em cookie HttpOnly em vez de retornar token para localStorage:",
+                code=(
+                    'response.set_cookie(\n'
+                    '    key="__Host-session",\n'
+                    '    value=jwt_token,\n'
+                    '    httponly=True,\n'
+                    '    secure=True,\n'
+                    '    samesite="lax",\n'
+                    '    path="/",\n'
+                    ')'
+                ),
+            ),
+            StackCodeExample(
+                technology="TypeScript (Frontend)",
+                language="typescript",
+                description="Realizar chamadas autenticadas enviando cookies HttpOnly automaticamente:",
+                code=(
+                    "// Nunca usar localStorage.setItem('token', ...)\n"
+                    "const res = await fetch('/api/v1/profile', { credentials: 'include' });"
+                ),
+            ),
+        ],
+        how_to_validate=(
+            "Verifique no DevTools do navegador que localStorage e sessionStorage não contêm JWTs ou segredos "
+            "e busque no código fonte cliente por chaves de API hardcoded."
+        ),
+        references=[
+            "CWE-922: Insecure Storage of Sensitive Information",
+            "CWE-798: Use of Hard-coded Credentials",
+            "OWASP ASVS 5.0 - V3.5 (Token-based Session Management)",
+        ],
+    ),
+    "server_side_template_injection_ssti": RemediationGuidance(
+        remediation_id="server_side_template_injection_ssti",
+        version="1.0.0",
+        what_was_identified=(
+            "A aplicação interpreta expressões de template fornecidas pelo usuário no servidor "
+            "(Server-Side Template Injection — SSTI), permitindo execução arbitrária de expressões."
+        ),
+        why_it_is_dangerous=(
+            "SSTI frequentemente leva à execução remota de código (RCE) completa no servidor através de "
+            "introspecção de objetos do motor de templates (Jinja2, Twig, Freemarker, Velocity)."
+        ),
+        how_it_was_detected=(
+            "Sondagem controlada com expressão aritmética inofensiva ('{{7*191}}' / '${7*191}') e confirmação "
+            "da avaliação matemática no servidor ('1337') ou detecção de exceções de parser de template."
+        ),
+        how_to_fix=(
+            "1. Nunca concatene ou interpole entrada do usuário diretamente na string do template.\n"
+            "2. Passe dados de usuário exclusivamente como variáveis de contexto para templates pré-compilados.\n"
+            "3. Utilize motores de templates com modo sandbox estrito ou renderização sem lógica (logic-less)."
+        ),
+        secure_examples=[
+            StackCodeExample(
+                technology="Python (Jinja2)",
+                language="python",
+                description="Passar dados como variável de contexto em vez de formatar a string do template:",
+                code=(
+                    "# Inseguro: Template(f'Olá {user_input}').render()\n"
+                    "# Seguro:\n"
+                    "return templates.TemplateResponse('hello.html', {'request': request, 'username': user_input})"
+                ),
+            ),
+            StackCodeExample(
+                technology="PHP (Twig)",
+                language="php",
+                description="Renderizar arquivo de template fixo com contexto isolado:",
+                code="$twig->render('welcome.html.twig', ['name' => $userInput]);",
+            ),
+        ],
+        how_to_validate=(
+            "Envie '{{7*191}}' em parâmetros de entrada e confirme que o texto é exibido literalmente sem ser avaliado para '1337'."
+        ),
+        references=[
+            "OWASP WSTG - WSTG-INPV-18 (Testing for Server-side Template Injection)",
+            "CWE-1336: Improper Neutralization of Special Elements Used in a Template Engine",
+            "OWASP Top 10 2021 - A03:2021 Injection",
+        ],
+    ),
+    "nosql_ldap_xpath_injection": RemediationGuidance(
+        remediation_id="nosql_ldap_xpath_injection",
+        version="1.0.0",
+        what_was_identified=(
+            "Foram detectados indicadores ou mensagens de erro de consultas NoSQL (MongoDB), LDAP ou XPath "
+            "indicando manipulação insegura de operadores ou filtros a partir da entrada do usuário."
+        ),
+        why_it_is_dangerous=(
+            "Operadores injetados como '$ne', '$gt' (NoSQL) ou caracteres de filtro LDAP/XPath permitem "
+            "contornar autenticação, extrair documentos e enumerar diretórios corporativos."
+        ),
+        how_it_was_detected=(
+            "Inspeção passiva de erros de driver e sondagem não destrutiva com operador estruturado ('$ne') "
+            "em parâmetros de consulta."
+        ),
+        how_to_fix=(
+            "1. Valide estritamente os tipos esperados via schemas (Pydantic/Zod), rejeitando objetos/dicionários "
+            "quando uma string primitiva for esperada.\n"
+            "2. Utilize consultas parametrizadas / builders tipados e escape caracteres especiais em filtros LDAP (RFC 4515) e XPath."
+        ),
+        secure_examples=[
+            StackCodeExample(
+                technology="Node.js (Mongoose / Zod)",
+                language="typescript",
+                description="Validar tipo primitivo estrito antes de consultar MongoDB:",
+                code=(
+                    "import { z } from 'zod';\n"
+                    "const UsernameSchema = z.string().min(1).max(64);\n"
+                    "const safeUser = UsernameSchema.parse(req.query.user);\n"
+                    "const doc = await UserModel.findOne({ username: { $eq: safeUser } });"
+                ),
+            ),
+            StackCodeExample(
+                technology="Python (ldap3 / Pydantic)",
+                language="python",
+                description="Escapar caracteres especiais em filtros LDAP:",
+                code=(
+                    "from ldap3.utils.conv import escape_filter_chars\n"
+                    "safe_uid = escape_filter_chars(user_input)\n"
+                    "search_filter = f'(uid={safe_uid})'"
+                ),
+            ),
+        ],
+        how_to_validate=(
+            "Envie '?user[$ne]=test' e confirme que a API rejeita com HTTP 422/400 sem retornar exceções de BSON/MongoDB."
+        ),
+        references=[
+            "CWE-943: Improper Neutralization of Special Elements in Data Query Logic",
+            "CWE-90: Improper Neutralization of Special Elements used in an LDAP Query",
+            "CWE-643: Improper Neutralization of Data within XPath Expressions",
+        ],
+    ),
+    "cookie_weak_entropy_or_insecure_deserialization": RemediationGuidance(
+        remediation_id="cookie_weak_entropy_or_insecure_deserialization",
+        version="1.0.0",
+        what_was_identified=(
+            "Foi identificado um cookie de sessão com entropia insuficiente (curto ou puramente numérico) "
+            "ou contendo assinaturas de objetos serializados inseguros (Java/Pickle/PHP)."
+        ),
+        why_it_is_dangerous=(
+            "Cookies previsíveis ou curtos permitem sequestro de sessão por adivinhação/força bruta; "
+            "objetos serializados manipulados pelo cliente podem resultar em Execução Remota de Código (RCE)."
+        ),
+        how_it_was_detected=(
+            "Inspeção em memória da estrutura e entropia de comprimento/formato de cookies de sessão recebidos "
+            "sem armazenamento do valor secreto."
+        ),
+        how_to_fix=(
+            "1. Gere identificadores de sessão usando gerador criptograficamente seguro (CSPRNG) com no mínimo 128 bits (32+ chars).\n"
+            "2. Nunca serialize objetos de linguagem nativa (Pickle, Java ObjectInputStream, PHP serialize) em cookies; "
+            "armazene o estado no servidor (Redis/DB) ou utilize tokens assinados/JSON."
+        ),
+        secure_examples=[
+            StackCodeExample(
+                technology="Python (secrets)",
+                language="python",
+                description="Gerar identificador de sessão opaco de alta entropia (256 bits):",
+                code=(
+                    "import secrets\n\n"
+                    "session_id = secrets.token_urlsafe(32)\n"
+                    'response.set_cookie("__Host-session", session_id, httponly=True, secure=True, samesite="lax", path="/")'
+                ),
+            ),
+            StackCodeExample(
+                technology="Node.js (crypto)",
+                language="typescript",
+                description="Gerar token de sessão aleatório CSPRNG e persistir estado no servidor:",
+                code=(
+                    "import { randomBytes } from 'crypto';\n"
+                    "const sid = randomBytes(32).toString('base64url');\n"
+                    "await redis.set(`sess:${sid}`, JSON.stringify({ userId }), { EX: 3600 });"
+                ),
+            ),
+        ],
+        how_to_validate=(
+            "Inspecione o cabeçalho Set-Cookie no login e confirme que o identificador possui alta entropia "
+            "(>= 32 caracteres aleatórios) e não contém payloads serializados."
+        ),
+        references=[
+            "CWE-502: Deserialization of Untrusted Data",
+            "CWE-331: Insufficient Entropy",
+            "OWASP ASVS 5.0 - V3.2 (Session Binding and Entropy)",
+        ],
+    ),
+    "web_cache_poisoning_unkeyed_headers": RemediationGuidance(
+        remediation_id="web_cache_poisoning_unkeyed_headers",
+        version="1.0.0",
+        what_was_identified=(
+            "A aplicação reflete cabeçalhos HTTP de encaminhamento não chaveados (como 'X-Forwarded-Host') "
+            "na resposta ou em redirecionamentos, criando risco de Web Cache Poisoning."
+        ),
+        why_it_is_dangerous=(
+            "Se uma CDN ou proxy reverso armazenar em cache a resposta contaminada, todos os usuários subsequentes "
+            "que acessarem a mesma URL receberão links maliciosos ou scripts apontando para o domínio do atacante."
+        ),
+        how_it_was_detected=(
+            "Sondagem não destrutiva enviando 'X-Forwarded-Host' com domínio canário e verificação de reflexão "
+            "no corpo HTML ou cabeçalho Location."
+        ),
+        how_to_fix=(
+            "1. Ignore cabeçalhos X-Forwarded-* a menos que provenientes de proxies confiáveis explícitos.\n"
+            "2. Utilize apenas o domínio canônico configurado na aplicação ao gerar URLs absolutas e redirecionamentos.\n"
+            "3. Caso o cabeçalho influencie a resposta legitimamente, inclua-o na diretiva 'Vary' e na chave de cache."
+        ),
+        secure_examples=[
+            StackCodeExample(
+                technology="Nginx",
+                language="nginx",
+                description="Sobrescrever cabeçalhos de encaminhamento na borda antes do upstream:",
+                code=(
+                    "proxy_set_header Host $host;\n"
+                    "proxy_set_header X-Forwarded-Host $host;\n"
+                    "proxy_set_header X-Forwarded-Proto $scheme;"
+                ),
+            ),
+            StackCodeExample(
+                technology="Python (FastAPI / Uvicorn)",
+                language="python",
+                description="Restringir proxies confiáveis ao processar cabeçalhos encaminhados:",
+                code=(
+                    "from starlette.middleware.trustedhost import TrustedHostMiddleware\n"
+                    'app.add_middleware(TrustedHostMiddleware, allowed_hosts=["app.empresa.com"])'
+                ),
+            ),
+        ],
+        how_to_validate=(
+            "Envie requisição com 'X-Forwarded-Host: evil.invalid' e confirme que o domínio não aparece "
+            "em URLs geradas no corpo ou cabeçalho Location."
+        ),
+        references=[
+            "CWE-444: Inconsistent Interpretation of HTTP Requests",
+            "CWE-349: Acceptance of Extraneous Untrusted Data With Trusted Data",
+            "OWASP WSTG - WSTG-ATHN-06 / Web Cache Poisoning",
+        ],
+    ),
+    "api_excessive_data_exposure_bopla": RemediationGuidance(
+        remediation_id="api_excessive_data_exposure_bopla",
+        version="1.0.0",
+        what_was_identified=(
+            "O payload JSON retornado pela API expõe propriedades internas ou sensíveis (como hashes de senha, "
+            "segredos MFA/TOTP, chaves privadas ou dados financeiros sensíveis)."
+        ),
+        why_it_is_dangerous=(
+            "A serialização direta de modelos ORM sem DTOs de saída vaza segredos internos, hashes quebráveis "
+            "offline e dados protegidos por conformidade (LGPD/PCI-DSS) (OWASP API3:2023 - BOPLA)."
+        ),
+        how_it_was_detected=(
+            "Inspeção estrutural da resposta JSON da API buscando chaves de propriedades sensíveis internas."
+        ),
+        how_to_fix=(
+            "1. Utilize modelos de resposta explícitos (Response Schemas / DTOs) listando apenas campos públicos permitidos.\n"
+            "2. Nunca serialize entidades de banco de dados diretamente na resposta HTTP.\n"
+            "3. Aplique projeções de colunas nas consultas SQL e filtros de saída centralizados."
+        ),
+        secure_examples=[
+            StackCodeExample(
+                technology="Python (FastAPI / Pydantic v2)",
+                language="python",
+                description="Definir schema de saída explícito via response_model:",
+                code=(
+                    "class UserPublicResponse(BaseModel):\n"
+                    "    id: str\n"
+                    "    email: str\n"
+                    "    full_name: str\n\n"
+                    '@app.get("/api/v1/users/me", response_model=UserPublicResponse)\n'
+                    "def get_me(user: User = Depends(get_current_user)):\n"
+                    "    return user  # hashed_password e mfa_secret são filtrados pelo schema"
+                ),
+            ),
+            StackCodeExample(
+                technology="Node.js (TypeScript / Prisma)",
+                language="typescript",
+                description="Selecionar explicitamente apenas campos não sensíveis na consulta:",
+                code=(
+                    "const user = await prisma.user.findUnique({\n"
+                    "  where: { id: userId },\n"
+                    "  select: { id: true, email: true, fullName: true },\n"
+                    "});"
+                ),
+            ),
+        ],
+        how_to_validate=(
+            "Inspecione as respostas JSON de todos os endpoints e confirme que nenhum hash, segredo ou chave interna é retornado."
+        ),
+        references=[
+            "OWASP API Security Top 10 - API3:2023 Broken Object Property Level Authorization",
+            "CWE-213: Exposure of Sensitive Information Due to Incompatible Policies",
+        ],
+    ),
+    "graphql_introspection_and_batching_exposure": RemediationGuidance(
+        remediation_id="graphql_introspection_and_batching_exposure",
+        version="1.0.0",
+        what_was_identified=(
+            "O endpoint GraphQL mantém a introspecção (__schema / __type) ou sugestões de campos habilitadas "
+            "publicamente sem autenticação."
+        ),
+        why_it_is_dangerous=(
+            "Permite que qualquer atacante extraia o grafo completo de queries, mutations, tipos e campos internos "
+            "da API em uma única requisição, além de facilitar enumeração de schema via mensagens de sugestão."
+        ),
+        how_it_was_detected=(
+            "Detecção de respostas de introspecção '__schema'/'__type' ou sondagem controlada no endpoint '/graphql'."
+        ),
+        how_to_fix=(
+            "1. Desabilite GraphQL Introspection e GraphiQL/Playground em ambientes de produção.\n"
+            "2. Desative sugestões de campos em mensagens de erro e imponha limites de profundidade (depth limit) e custo de query."
+        ),
+        secure_examples=[
+            StackCodeExample(
+                technology="Node.js (Apollo Server)",
+                language="typescript",
+                description="Desabilitar introspecção em produção:",
+                code=(
+                    "const server = new ApolloServer({\n"
+                    "  typeDefs,\n"
+                    "  resolvers,\n"
+                    "  introspection: process.env.NODE_ENV !== 'production',\n"
+                    "});"
+                ),
+            ),
+            StackCodeExample(
+                technology="Python (Strawberry / Graphene)",
+                language="python",
+                description="Restringir GraphiQL e validação de introspecção em produção:",
+                code=(
+                    "from graphql.validation import NoSchemaIntrospectionCustomRule\n"
+                    "schema = strawberry.Schema(\n"
+                    "    query=Query,\n"
+                    "    extensions=[AddValidationRules([NoSchemaIntrospectionCustomRule])] if is_prod else [],\n"
+                    ")"
+                ),
+            ),
+        ],
+        how_to_validate=(
+            "Envie '{__schema{queryType{name}}}' ao endpoint GraphQL e confirme que a introspecção é rejeitada."
+        ),
+        references=[
+            "OWASP API Security Top 10 - API8:2023 Security Misconfiguration",
+            "OWASP GraphQL Cheat Sheet",
+            "CWE-200: Exposure of Sensitive Information to an Unauthorized Actor",
+        ],
+    ),
+    "host_header_injection": RemediationGuidance(
+        remediation_id="host_header_injection",
+        version="1.0.0",
+        what_was_identified=(
+            "A aplicação confia no cabeçalho 'Host' ou 'X-Forwarded-Host' fornecido pelo cliente para construir "
+            "URLs de redirecionamento ou links absolutos na resposta."
+        ),
+        why_it_is_dangerous=(
+            "Permite envenenamento de links de redefinição de senha (Password Reset Poisoning), redirecionamentos "
+            "maliciosos e bypass de verificações de origem."
+        ),
+        how_it_was_detected=(
+            "Sondagem com cabeçalho 'X-Forwarded-Host' contendo domínio canário e detecção da reflexão no "
+            "cabeçalho Location ou corpo HTML."
+        ),
+        how_to_fix=(
+            "1. Configure uma lista estrita de hosts permitidos (ALLOWED_HOSTS / TrustedHostMiddleware) no servidor e aplicação.\n"
+            "2. Use uma variável de ambiente fixa (APP_BASE_URL) para gerar links em e-mails e redirecionamentos."
+        ),
+        secure_examples=[
+            StackCodeExample(
+                technology="Nginx",
+                language="nginx",
+                description="Rejeitar requisições cujo Host não corresponda ao server_name:",
+                code=(
+                    "server {\n"
+                    "    listen 443 ssl default_server;\n"
+                    "    return 444;\n"
+                    "}\n"
+                    "server {\n"
+                    "    listen 443 ssl;\n"
+                    "    server_name app.empresa.com;\n"
+                    "    ...\n"
+                    "}"
+                ),
+            ),
+            StackCodeExample(
+                technology="Python (Django / FastAPI)",
+                language="python",
+                description="Restringir hosts confiáveis na aplicação:",
+                code=(
+                    "# Django settings.py:\n"
+                    'ALLOWED_HOSTS = ["app.empresa.com"]\n'
+                    "USE_X_FORWARDED_HOST = False"
+                ),
+            ),
+        ],
+        how_to_validate=(
+            "Envie 'curl -H \"X-Forwarded-Host: atacante.invalid\" https://<alvo>' e confirme que a resposta não "
+            "redireciona nem gera URLs apontando para o domínio injetado."
+        ),
+        references=[
+            "OWASP WSTG - WSTG-INPV-17 (Testing for Host Header Injection)",
+            "CWE-644: Improper Neutralization of HTTP Headers for Scripting Syntax",
+        ],
+    ),
+    "exposed_sourcemaps_and_build_artifacts": RemediationGuidance(
+        remediation_id="exposed_sourcemaps_and_build_artifacts",
+        version="1.0.0",
+        what_was_identified=(
+            "Foram identificados artefatos de build ou depuração expostos publicamente, como arquivos Source Map "
+            "('.js.map'), cabeçalhos 'SourceMap'/'X-SourceMap', 'Dockerfile' ou '.DS_Store'."
+        ),
+        why_it_is_dangerous=(
+            "Source maps permitem reconstruir integralmente o código-fonte TypeScript/React original com comentários, "
+            "rotas internas e lógica de negócio; Dockerfiles expõem arquitetura e versões de dependências."
+        ),
+        how_it_was_detected=(
+            "Inspeção de cabeçalhos SourceMap, referências sourceMappingURL e sondagem não destrutiva de "
+            "caminhos de build comuns."
+        ),
+        how_to_fix=(
+            "1. Desabilite a geração ou publicação de arquivos '.map' no build de produção ou restrinja seu acesso "
+            "apenas a servidores internos de observabilidade (Sentry).\n"
+            "2. Bloqueie o acesso a arquivos Dockerfile, .DS_Store e metadados de build no servidor web."
+        ),
+        secure_examples=[
+            StackCodeExample(
+                technology="Next.js (next.config.js)",
+                language="javascript",
+                description="Desabilitar source maps públicos no build de produção:",
+                code=(
+                    "module.exports = {\n"
+                    "  productionBrowserSourceMaps: false,\n"
+                    "};"
+                ),
+            ),
+            StackCodeExample(
+                technology="Nginx",
+                language="nginx",
+                description="Bloquear acesso público a source maps e artefatos de build:",
+                code=(
+                    "location ~* (\\.map$|Dockerfile|\\.DS_Store) {\n"
+                    "    deny all;\n"
+                    "    return 404;\n"
+                    "}"
+                ),
+            ),
+        ],
+        how_to_validate=(
+            "Acesse os arquivos .js.map e /Dockerfile em produção e confirme que retornam HTTP 404 Not Found."
+        ),
+        references=[
+            "OWASP Top 10 2021 - A05:2021 Security Misconfiguration",
+            "CWE-540: Inclusion of Sensitive Information in Source Code",
+        ],
+    ),
 }
 
 

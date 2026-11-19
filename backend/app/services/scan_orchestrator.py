@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -81,22 +82,30 @@ MAX_ACTIVE_SCANS_PER_ORG = 5
 class ScanOrchestrator:
     """Coordena o ciclo de vida completo de auditorias de segurança autorizadas."""
 
-    @staticmethod
-    def _set_redis_cancel_flag(scan_id: str) -> None:
+    _redis_down_until: float = 0.0
+
+    @classmethod
+    def _set_redis_cancel_flag(cls, scan_id: str) -> None:
+        if time.monotonic() < cls._redis_down_until:
+            return
         settings = get_settings()
         try:
-            client = redis.Redis.from_url(settings.redis_url, socket_connect_timeout=1, socket_timeout=1)
+            client = redis.Redis.from_url(settings.redis_url, socket_connect_timeout=0.15, socket_timeout=0.15)
             client.set(f"csc:scan:cancel:{scan_id}", "1", ex=3600)
         except (redis.RedisError, OSError, ValueError) as exc:
+            cls._redis_down_until = time.monotonic() + 5.0
             logger.debug("Redis indisponível ao gravar flag de cancelamento (%s): %s", scan_id, exc)
 
-    @staticmethod
-    def _is_redis_cancel_flagged(scan_id: str) -> bool:
+    @classmethod
+    def _is_redis_cancel_flagged(cls, scan_id: str) -> bool:
+        if time.monotonic() < cls._redis_down_until:
+            return False
         settings = get_settings()
         try:
-            client = redis.Redis.from_url(settings.redis_url, socket_connect_timeout=1, socket_timeout=1)
+            client = redis.Redis.from_url(settings.redis_url, socket_connect_timeout=0.15, socket_timeout=0.15)
             return bool(client.get(f"csc:scan:cancel:{scan_id}"))
         except (redis.RedisError, OSError, ValueError):
+            cls._redis_down_until = time.monotonic() + 5.0
             return False
 
     @staticmethod

@@ -76,6 +76,13 @@ Este arquivo documenta as tarefas concluídas em todas as fases do projeto (FASE
   - Rota dedicada `GET /api/v1/scans/{scan_id}/export-pdf` com isolamento multi-tenant, auditoria e geração síncrona/assíncrona.
   - Botões de extração PDF na tabela de auditorias (`scans-history-panel.tsx`) e no monitor de auditoria (`soc-console.tsx`).
   - 39 testes no `security-engine` aprovados, 49 no backend aprovados, 27 no frontend aprovados.
+- [x] **`[T8.8]` Auditoria Completa, Ampliação de Cobertura (53 Checks / 39 Playbooks) e Aumento de Precisão Anti-Falso-Positivo**:
+  - Expansão do catálogo de verificações determinísticas nos Módulos A–H com **10 novos checks** (`CHK-A13` SRI em scripts/estilos externos, `CHK-B05` Segredos hardcoded no cliente e tokens em Web Storage, `CHK-C05` Server-Side Template Injection SSTI, `CHK-D05` NoSQL/LDAP/XPath Injection, `CHK-E04` Entropia fraca e assinaturas de desserialização em cookies Java/Pickle/PHP, `CHK-F05` Web Cache Poisoning via cabeçalhos não chaveados, `CHK-G06` Exposição Excessiva de Propriedades Sensíveis BOPLA, `CHK-G07` GraphQL Introspection e Field Suggestions, `CHK-H08` Host Header Injection, `CHK-H09` Source Maps `.js.map` e `/Dockerfile`).
+  - Melhorias substanciais de precisão e redução de falsos positivos/negativos: análise contextual de CSP sem falso positivo em subdomínios `https://*.cdn...` e detecção de `frame-ancestors *` / HSTS `max-age=0` / cifras TLS fracas (`RC4`/`3DES`/`DES`/`NULL`/`MD5`) / políticas SPF `+all` vs `?all` e DMARC `p=none`; detecção de formulários com senha sem atributo `method=` (`CHK-B04`); prevenção de falso positivo XSS em payloads JSON com `X-Content-Type-Options: nosniff` e descoberta dinâmica de parâmetros HTML `<input>`; SQLi diferencial por baseline/latência efetiva e checagem booleana (`CHK-D02`/`CHK-D04`); validação estrita RFC 6265bis em prefixos `__Host-`/`__Secure-` (`CHK-E03`); verificação de segredo HMAC fraco e cabeçalhos `jku`/`x5u`/`jwk`/`kid` em JWT (`CHK-G05`); filtragem de páginas HTML Soft-404 de SPAs (`CHK-H01`/`CHK-H09`) e detecção de bypass `//`/`/\` em Open Redirect (`CHK-H03`).
+  - Catálogo determinístico `CHECK_CVSS_V4_CATALOG` para todos os 53 checks no `RiskEngine` e enforcement automático de `EvidenceManager.ensure_sanitized()` com `SENSITIVE_QUERY_KEYS` ampliado e sanitização idempotente.
+  - Adição de 10 novos playbooks multi-stack ao `REMEDIATION_CATALOG` (totalizando **39 playbooks**).
+  - Resiliência do `ScanOrchestrator`, `database.py` e `celery_app.py` para fail-fast de broker/Redis em testes locais.
+  - Validação completa: 49 testes no `security-engine`, 49 no `backend`, 3 na suíte de infraestrutura (`tests/`) e 0 erros no `ruff check` (totalizando 101 testes Python aprovados).
 
 ---
 

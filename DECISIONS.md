@@ -210,3 +210,30 @@ Este documento registra as decisões arquiteturais e técnicas adotadas no desen
   - **Endpoint e Interface SOC de Extração de PDF**:
     - Rota `GET /api/v1/scans/{scan_id}/export-pdf` com isolamento multi-tenant, gravação em trilha de auditoria (`AuditLog`) e download direto (`attachment; filename=...`).
     - Botões integrados na tabela de histórico de auditorias (`scans-history-panel.tsx`) e no monitor de execução (`soc-console.tsx`) com estado de carregamento assíncrono.
+
+---
+
+## ADR-015: Ampliação da Cobertura de Verificação (53 Checks), Motor Anti-Falso-Positivo Contextual e Catálogo Determinístico CVSS v4.0
+
+- **Status**: Aceito (Pós-v1.0 — Evolução de Cobertura e Precisão)
+- **Contexto**: Após uma auditoria completa de todas as verificações dos Módulos A a H e dos mecanismos de pontuação de risco e sanitização, identificaram-se lacunas relevantes de cobertura moderna (como SSTI, NoSQL/LDAP/XPath, BOPLA, GraphQL Introspection, Web Cache Poisoning, Host Header Injection, SRI, Source Maps e Desserialização/Entropia de Cookies), bem como cenários propensos a falsos positivos (ex.: SPA Soft-404 respondendo HTTP 200 HTML para arquivos sensíveis, reflexão em JSON com `nosniff`, wildcards legítimos de subdomínio em CSP e assinaturas de erro já presentes no HTML base) ou falsos negativos (ex.: formulários HTML com `method` omitido, cifras TLS separadas por `_`, redirecionamentos `//` e `/\`, e JWT HS256 com segredos fracos).
+- **Decisão**:
+  - **Ampliação para 53 Checks Determinísticos (`CHK-A01`..`CHK-H09`)**:
+    - `CHK-A13`: Subresource Integrity (`SRI`) em tags `<script>` e `<link rel="stylesheet">` de origens externas.
+    - `CHK-B05`: Credenciais/chaves privadas hardcoded no HTML/JS cliente (com mascaramento obrigatório) e tokens armazenados em `localStorage`/`sessionStorage`.
+    - `CHK-C05`: Detecção passiva e ativa controlada de Server-Side Template Injection (SSTI via canário matemático inofensivo `csc{{7*191}}csc`/`csc${7*191}csc` -> `csc1337csc`).
+    - `CHK-D05`: Indicadores e sondagem não destrutiva de injeção NoSQL (`[$ne]`), LDAP e XPath.
+    - `CHK-E04`: Inspeção em memória de assinaturas de desserialização em cookies (Java `rO0AB`, Python Pickle `gASV`/`gAJ`, PHP `O:\d+:`) e verificação de baixa entropia/IDs numéricos em cookies de sessão sem jamais persistir o valor bruto.
+    - `CHK-F05`: Verificação controlada de Web Cache Poisoning via cabeçalhos não chaveados (`X-Forwarded-Host`, `X-Forwarded-Scheme`) e presença de diretivas de cache público/CDN.
+    - `CHK-G06`: Detecção de exposição excessiva de propriedades sensíveis em APIs JSON (BOPLA / OWASP API3:2023), com isenção explícita para documentos OpenAPI/Swagger.
+    - `CHK-G07`: Detecção passiva e ativa de introspecção GraphQL (`__schema`) e vazamento via field suggestions (`Did you mean`).
+    - `CHK-H08`: Prova ativa segura de Host Header Injection (`X-Forwarded-Host`) refletido em `Location` ou URLs HTML.
+    - `CHK-H09`: Exposição de Source Maps (`.js.map`) acessíveis e artefatos de build/infraestrutura (`/Dockerfile`).
+  - **Endurecimento Anti-Falso-Positivo e Aumento de Sensibilidade**:
+    - Análise contextual de respostas HTTP no Módulo C (`_classify_reflection_context`), evitando falso positivo XSS em respostas JSON/texto puro protegidas com `X-Content-Type-Options: nosniff`.
+    - Filtro de Soft-404 HTML (`_is_soft_404_html`) nos Módulos A, G e H para evitar falsas detecções em SPAs que retornam HTTP 200 HTML para caminhos como `/.env`, `/openapi.json`, `/graphql` ou `/Dockerfile`.
+    - Validação diferencial de SQLi (comparação contra erros já presentes no baseline e validação booleana/latência efetiva com sonda de controle) no Módulo D.
+    - Verificação completa RFC 6265bis de prefixos `__Host-`/`__Secure-` (`CHK-E03`), auditoria de segredos HMAC fracos e cabeçalhos `jku`/`x5u`/`jwk`/`kid` em JWT (`CHK-G05`), correção da regex `WEAK_TLS_CIPHERS_REGEX` para suportar delimitadores IANA (`_`) e OpenSSL (`-`), e análise granular de CSP, HSTS `max-age=0` e SPF `+all`/`?all`.
+  - **Catálogo Determinístico CVSS v4.0, Sanitização Compulsória e 39 Playbooks**:
+    - Inclusão de `CHECK_CVSS_V4_CATALOG` cobrindo todos os 53 checks no `RiskEngine`, aliado ao `_finalize_module_result` e `RiskEngine.validate_finding_consistency()` invocando `EvidenceManager.ensure_sanitized()` de forma idempotente em todos os achados.
+    - Expansão do `REMEDIATION_CATALOG` com 10 novos playbooks multi-stack, totalizando **39 playbooks**.

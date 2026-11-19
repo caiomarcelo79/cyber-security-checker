@@ -22,10 +22,15 @@ SENSITIVE_QUERY_KEYS = {
     "password",
     "passwd",
     "pwd",
+    "pass",
+    "senha",
+    "user_password",
     "secret",
     "token",
     "access_token",
     "refresh_token",
+    "auth_token",
+    "id_token",
     "api_key",
     "apikey",
     "client_secret",
@@ -99,7 +104,7 @@ class EvidenceManager:
         redactions = 0
         parsed = urlparse(url)
         netloc = parsed.netloc
-        if "@" in netloc:
+        if "@" in netloc and not netloc.startswith("[REDACTED_CREDENTIALS]@"):
             _, host_part = netloc.rsplit("@", 1)
             netloc = f"[REDACTED_CREDENTIALS]@{host_part}"
             redactions += 1
@@ -108,8 +113,11 @@ class EvidenceManager:
         sanitized_query: list[tuple[str, str]] = []
         for k, v in query_items:
             if k.lower() in SENSITIVE_QUERY_KEYS or JWT_PATTERN.search(v):
-                sanitized_query.append((k, "[REDACTED]"))
-                redactions += 1
+                if v == "[REDACTED]" or "[REDACTED" in v:
+                    sanitized_query.append((k, v))
+                else:
+                    sanitized_query.append((k, "[REDACTED]"))
+                    redactions += 1
             else:
                 sanitized_query.append((k, v))
 
@@ -136,6 +144,9 @@ class EvidenceManager:
 
         for key, value in headers.items():
             lower_key = key.lower().strip()
+            if "[REDACTED" in value:
+                sanitized[key] = value
+                continue
             if lower_key in SENSITIVE_HEADER_NAMES:
                 match = BEARER_PATTERN.match(value.strip())
                 if match:
@@ -153,7 +164,7 @@ class EvidenceManager:
                 redacted_count += 1
             else:
                 cleaned_val, c = cls.sanitize_text_snippet(value, max_chars=512)
-                sanitized[key] = cleaned_val
+                sanitized[key] = cleaned_val or ""
                 redacted_count += c
 
         return sanitized, redacted_count
@@ -183,6 +194,8 @@ class EvidenceManager:
 
         def _replace_json_secret(match: re.Match[str]) -> str:
             nonlocal redactions
+            if "[REDACTED" in match.group(2):
+                return match.group(0)
             redactions += 1
             return f'{match.group(1)}"[REDACTED_SECRET]"'
 
@@ -190,10 +203,43 @@ class EvidenceManager:
         sanitized = BEARER_PATTERN.sub(_replace_bearer, sanitized)
         sanitized = JSON_SECRET_PATTERN.sub(_replace_json_secret, sanitized)
 
-        if len(sanitized) > max_chars:
+        if len(sanitized) > max_chars and not sanitized.endswith(f"... [TRUNCATED at {max_chars} chars]"):
             sanitized = f"{sanitized[:max_chars]}... [TRUNCATED at {max_chars} chars]"
 
         return sanitized, redactions
+
+    @classmethod
+    def ensure_sanitized(cls, evidence: SanitizedEvidence) -> SanitizedEvidence:
+        """Garante sanitização completa mesmo quando SanitizedEvidence foi construído diretamente."""
+        additional_redactions = 0
+
+        clean_url = evidence.request_url
+        if clean_url:
+            clean_url, c_url = cls.sanitize_url(clean_url)
+            additional_redactions += c_url
+
+        clean_req_headers, c_req = cls.sanitize_headers(evidence.request_headers)
+        additional_redactions += c_req
+
+        clean_resp_headers, c_resp = cls.sanitize_headers(evidence.response_headers)
+        additional_redactions += c_resp
+
+        clean_body, c_body = cls.sanitize_text_snippet(evidence.response_body_Excerpt)
+        additional_redactions += c_body
+
+        clean_observed, c_obs = cls.sanitize_text_snippet(evidence.observed_value, max_chars=512)
+        additional_redactions += c_obs
+
+        return evidence.model_copy(
+            update={
+                "request_url": clean_url,
+                "request_headers": clean_req_headers,
+                "response_headers": clean_resp_headers,
+                "response_body_Excerpt": clean_body,
+                "observed_value": clean_observed,
+                "redacted_fields_count": evidence.redacted_fields_count + additional_redactions,
+            }
+        )
 
     @classmethod
     def build_sanitized_evidence(

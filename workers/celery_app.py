@@ -27,6 +27,14 @@ celery_app.conf.update(
     task_soft_time_limit=3600,
     worker_prefetch_multiplier=1,
     task_acks_late=True,
+    broker_connection_timeout=0.5,
+    broker_connection_retry=False,
+    task_publish_retry=False,
+    broker_transport_options={
+        "max_retries": 0,
+        "socket_connect_timeout": 0.3,
+        "socket_timeout": 0.3,
+    },
     beat_schedule={
         "process-due-schedules-every-minute": {
             "task": "workers.tasks.process_due_schedules_task",

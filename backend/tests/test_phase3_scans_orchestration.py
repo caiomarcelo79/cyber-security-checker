@@ -11,10 +11,6 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from app.main import app
-
-client = TestClient(app)
-
 
 @contextmanager
 def run_ephemeral_lab_http_server(
@@ -33,7 +29,7 @@ def run_ephemeral_lab_http_server(
         thread.join(timeout=2.0)
 
 
-def _register_org_and_admin(prefix: str) -> tuple[str, str]:
+def _register_org_and_admin(client: TestClient, prefix: str) -> tuple[str, str]:
     suffix = uuid.uuid4().hex[:8]
     resp = client.post(
         "/api/v1/auth/register",
@@ -50,9 +46,9 @@ def _register_org_and_admin(prefix: str) -> tuple[str, str]:
     return data["access_token"], data["active_organization"]["id"]
 
 
-def test_phase3_unverified_asset_and_production_restrictions_blocked() -> None:
+def test_phase3_unverified_asset_and_production_restrictions_blocked(client: TestClient) -> None:
     """Garante que ativos sem autorização VERIFIED ou perfis invasivos em PRODUÇÃO são bloqueados."""
-    token, _ = _register_org_and_admin("gate")
+    token, _ = _register_org_and_admin(client, "gate")
     headers = {"Authorization": f"Bearer {token}"}
 
     # 1. Cria ativo em LAB ainda com status PENDING
@@ -100,10 +96,10 @@ def test_phase3_unverified_asset_and_production_restrictions_blocked() -> None:
     assert prod_asset_resp.status_code == 201
 
 
-def test_phase3_real_scan_execution_results_persistence_and_tenant_isolation() -> None:
+def test_phase3_real_scan_execution_results_persistence_and_tenant_isolation(client: TestClient) -> None:
     """Executa auditoria completa contra servidor de laboratório local autorizado e valida persistência e isolamento."""
-    token_a, _ = _register_org_and_admin("orga")
-    token_b, _ = _register_org_and_admin("orgb")
+    token_a, _ = _register_org_and_admin(client, "orga")
+    token_b, _ = _register_org_and_admin(client, "orgb")
     headers_a = {"Authorization": f"Bearer {token_a}"}
     headers_b = {"Authorization": f"Bearer {token_b}"}
 
@@ -216,9 +212,9 @@ def test_phase3_real_scan_execution_results_persistence_and_tenant_isolation() -
         assert org_b_findings == []
 
 
-def test_phase3_scan_idempotency_and_cancellation() -> None:
+def test_phase3_scan_idempotency_and_cancellation(client: TestClient) -> None:
     """Valida idempotência de criação de scan em fila e cancelamento efetivo."""
-    token, _ = _register_org_and_admin("cancel")
+    token, _ = _register_org_and_admin(client, "cancel")
     headers = {"Authorization": f"Bearer {token}"}
 
     asset_resp = client.post(

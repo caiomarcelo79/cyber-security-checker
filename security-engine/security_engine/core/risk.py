@@ -11,6 +11,79 @@ from security_engine.core.contracts import (
     NormalizedFinding,
     Severity,
 )
+from security_engine.core.evidence import EvidenceManager
+
+SEVERITY_CVSS_V4_FALLBACK: dict[Severity, tuple[str, float]] = {
+    Severity.CRITICAL: ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N", 9.3),
+    Severity.HIGH: ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:L/VA:N/SC:N/SI:N/SA:N", 8.2),
+    Severity.MEDIUM: ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:A/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N", 5.3),
+    Severity.LOW: ("CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:P/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N", 3.1),
+    Severity.INFO: ("CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:N/VI:N/VA:N/SC:N/SI:N/SA:N", 0.0),
+}
+
+CHECK_CVSS_V4_CATALOG: dict[str, tuple[str, float]] = {
+    # Módulo A — Recon, TLS, Headers, DNS, SRI
+    "CHK-A01": ("CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:L/VA:N/SC:N/SI:N/SA:N", 7.7),
+    "CHK-A02": ("CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:P/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N", 4.8),
+    "CHK-A03": ("CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:A/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N", 4.3),
+    "CHK-A04": ("CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:P/VC:N/VI:L/VA:N/SC:N/SI:N/SA:N", 2.7),
+    "CHK-A05": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:A/VC:N/VI:L/VA:N/SC:N/SI:N/SA:N", 3.9),
+    "CHK-A06": ("CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:P/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N", 2.7),
+    "CHK-A07": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N", 3.7),
+    "CHK-A08": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N", 5.3),
+    "CHK-A09": ("CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:L/VA:N/SC:N/SI:N/SA:N", 7.1),
+    "CHK-A10": ("CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N", 8.2),
+    "CHK-A11": ("CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N", 7.4),
+    "CHK-A12": ("CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:P/VC:N/VI:L/VA:N/SC:L/SI:L/SA:N", 3.5),
+    "CHK-A13": ("CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:P/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N", 3.7),
+    # Módulo B — Autenticação e Segredos no Cliente
+    "CHK-B01": ("CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:P/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N", 9.1),
+    "CHK-B02": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N", 3.9),
+    "CHK-B03": ("CVSS:4.0/AV:L/AC:H/AT:P/PR:N/UI:P/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N", 2.9),
+    "CHK-B04": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:P/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N", 7.5),
+    "CHK-B05": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:L/VA:N/SC:N/SI:N/SA:N", 7.8),
+    # Módulo C — XSS e SSTI
+    "CHK-C01": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:A/VC:L/VI:L/VA:N/SC:H/SI:H/SA:N", 7.1),
+    "CHK-C02": ("CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:A/VC:L/VI:L/VA:N/SC:L/SI:L/SA:N", 5.8),
+    "CHK-C03": ("CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:A/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N", 4.3),
+    "CHK-C04": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:A/VC:L/VI:L/VA:N/SC:H/SI:H/SA:N", 7.3),
+    "CHK-C05": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N", 9.3),
+    # Módulo D — SQLi, Command Injection, NoSQL/LDAP/XPath
+    "CHK-D01": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:L/VA:N/SC:N/SI:N/SA:N", 7.8),
+    "CHK-D02": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:L/SC:N/SI:N/SA:N", 8.7),
+    "CHK-D03": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N", 9.5),
+    "CHK-D04": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N", 8.7),
+    "CHK-D05": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:L/VA:N/SC:N/SI:N/SA:N", 8.2),
+    # Módulo E — Cookies, Prefixos, Entropia e Desserialização
+    "CHK-E01": ("CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:P/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N", 5.3),
+    "CHK-E02": ("CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:P/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N", 5.1),
+    "CHK-E03": ("CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:P/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N", 3.5),
+    "CHK-E04": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N", 8.8),
+    # Módulo F — Resiliência DoS, Smuggling e Cache Poisoning
+    "CHK-F01": ("CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N", 1.8),
+    "CHK-F02": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N", 3.7),
+    "CHK-F03": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N", 3.9),
+    "CHK-F04": ("CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N", 7.4),
+    "CHK-F05": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:P/VC:L/VI:H/VA:N/SC:L/SI:L/SA:N", 7.2),
+    # Módulo G — APIs REST & GraphQL, CORS, JWT, BOPLA
+    "CHK-G01": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:P/VC:H/VI:L/VA:N/SC:N/SI:N/SA:N", 7.7),
+    "CHK-G02": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N", 3.7),
+    "CHK-G03": ("CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:P/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N", 3.4),
+    "CHK-G04": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:P/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N", 5.3),
+    "CHK-G05": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N", 8.9),
+    "CHK-G06": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N", 7.8),
+    "CHK-G07": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:L/SC:N/SI:N/SA:N", 5.3),
+    # Módulo H — Arquivos Sensíveis, LFI, SSRF, Host Header, Source Maps
+    "CHK-H01": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N", 9.1),
+    "CHK-H02": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N", 5.3),
+    "CHK-H03": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:A/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N", 5.1),
+    "CHK-H04": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:A/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N", 5.4),
+    "CHK-H05": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N", 9.1),
+    "CHK-H06": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:L/VA:N/SC:H/SI:N/SA:N", 8.2),
+    "CHK-H07": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:L/VA:N/SC:N/SI:N/SA:N", 7.9),
+    "CHK-H08": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:P/VC:L/VI:H/VA:N/SC:N/SI:N/SA:N", 7.1),
+    "CHK-H09": ("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N", 3.7),
+}
 
 SEVERITY_WEIGHTS: dict[Severity, float] = {
     Severity.CRITICAL: 25.0,
@@ -75,13 +148,32 @@ class RiskEngine:
 
     @classmethod
     def validate_finding_consistency(cls, finding: NormalizedFinding) -> NormalizedFinding:
-        """Valida e ajusta a classificação de uma descoberta de acordo com o nível de confiança."""
+        """Valida classificação, garante sanitização de evidências e enriquece vetores CVSS v4.0."""
         adjusted = cls.validate_classification_consistency(
             finding.result_classification,
             finding.confidence,
         )
         if adjusted != finding.result_classification:
             finding.result_classification = adjusted
+
+        finding.evidence = EvidenceManager.ensure_sanitized(finding.evidence)
+
+        if finding.cvss_v4_vector is None or finding.cvss_v4_score is None:
+            catalog_entry = CHECK_CVSS_V4_CATALOG.get(finding.check_id)
+            if catalog_entry is not None:
+                vector, base_score = catalog_entry
+                if finding.result_classification == CheckStatus.POTENTIAL_VULNERABILITY:
+                    score = round(base_score * 0.85, 1)
+                else:
+                    score = base_score
+            else:
+                vector, score = SEVERITY_CVSS_V4_FALLBACK[finding.severity]
+
+            if finding.cvss_v4_vector is None:
+                finding.cvss_v4_vector = vector
+            if finding.cvss_v4_score is None:
+                finding.cvss_v4_score = score
+
         return finding
 
     @classmethod
