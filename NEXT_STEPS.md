@@ -88,6 +88,34 @@ Este arquivo documenta as tarefas concluídas em todas as fases do projeto (FASE
 
 ## Próximos Passos Pós-v1.0 (Backlog Versão 1.1)
 
+O ponto de retomada e o roteiro de validação ficam em [PROGRESS.md](PROGRESS.md). As fases futuras e seus critérios de aceite ficam em [ROADMAP.md](ROADMAP.md).
+
+### Fase 1 — SSH
+
+- [x] **1.1 — Verificar a diretiva global de senha.** OpenSSH real, CLI, API e PostgreSQL validados em laboratório, com estados e evidências conferidos nos testes do Console. Os testes cobrem autorização revogada ou expirada, isolamento entre organizações e evidência insuficiente.
+- [x] **1.2 — Verificar a política de acesso de root.** A coleta global classifica o bloqueio integral como conforme e registra divergência quando algum acesso de root permanece permitido.
+- [x] **1.3 — Validar o fluxo de notificação de autenticação.** O exercício publica um evento sintético identificado na caixa de notificações do próprio analista e mede o tempo até a publicação.
+
+### Checklist antes da Fase 2
+
+- [x] Os resultados de senha e root correspondem à configuração OpenSSH avaliada em laboratório. A renderização no Console foi verificada em testes de componente.
+- [x] Falha de coleta e evidência insuficiente são exibidas como estados próprios. Autorizações ausentes, expiradas e revogadas bloqueiam novas coletas.
+- [x] Os testes de isolamento entre organizações e minimização de evidência passam.
+- [x] O alerta sintético aparece na caixa de notificações do analista e o exercício retorna o tempo de publicação.
+- [x] Migrações, testes do backend e validação do frontend passaram. A [matriz de testes](TEST_MATRIX.md) e o [arquivo de progresso](PROGRESS.md) registram os resultados e o ponto de retomada.
+
+### Fase 2 — Coletor desktop
+
+- [x] **2.1 — Definir e provar a primeira integração.** O Console cadastra uma instalação Zeek e seu segmento. A CLI importa o `conn.log`, e a API valida escopo, deduplica reenvios e aplica retenção. Os campos e o tamanho de lote estão documentados em [PROGRESS.md](PROGRESS.md).
+- [x] **2.2 — Entregar o piloto desktop.** A janela mostra a fonte, o segmento, o último envio e o atraso. Os controles pausam e retomam um lote em memória. O leitor mantém a posição confirmada entre reinícios e trata indisponibilidade, rotação com a janela aberta e revogação.
+
+### Fase 3 — Disponibilidade
+
+- [ ] **3.1 — Criar o primeiro exercício de disponibilidade.** Preparar em laboratório uma sequência sintética com estado normal, degradação e recuperação. Validar um limiar de alerta e a publicação na caixa de notificações do analista. Registrar a linha do tempo esperada e a observada.
+- [ ] **3.2 — Ampliar métricas e fontes de observação.** Adicionar cenários de latência, erros e saturação. Quando uma fonte autorizada estiver disponível, incorporar alertas de firewall, CDN ou provedor.
+
+### Outros itens do backlog 1.1
+
 1. **Atualização do Next.js**: Atualizar para versão mais recente para sanar o alerta residual de PostCSS em `npm audit`.
 2. **Alertas Push e Web Push**: Notificações push no navegador via Service Workers para analistas do SOC.
 3. **Módulos Adicionais de Auditoria**: Suporte a GraphQL Introspection and Injection Testing.

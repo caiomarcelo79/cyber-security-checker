@@ -146,3 +146,18 @@ O desenvolvimento do `cyber-security-checker` é estruturado por fases sequencia
 - [x] Documentação completa de release (`INSTALLATION.md`, `DEPLOYMENT.md`, `OPERATIONS.md`, `SECURITY.md`, `BACKUP_RECOVERY.md`, `CHANGELOG.md` e `RELEASE_READINESS.md`).
 
 **Critério Objetivo de Conclusão:** Versão 1.0 testada de ponta a ponta, auditada, resiliente e formalmente aprovada com status **READY FOR RELEASE v1.0.0** (`TM-020`).
+
+---
+
+## Plano de melhorias pós-v1.0
+
+A numeração abaixo é própria deste plano. As fases 1 e 2 foram validadas em laboratório. A Fase 3 começa com um exercício sintético de degradação e recuperação. Consulte [PROGRESS.md](PROGRESS.md) para as evidências e [NEXT_STEPS.md](NEXT_STEPS.md) para a ordem de implementação.
+
+| Fase | Entrega | Critério de aceite |
+| :--- | :--- | :--- |
+| 1 · SSH | CLI Python para a configuração global de senha e root. Exercício sintético de autenticação em laboratório. | O Console registra conformidade ou divergência com evidência mínima. O alerta aparece na caixa de notificações do analista e o exercício registra o tempo de publicação. |
+| 2 · Coletor desktop | Piloto com uma fonte autorizada de metadados de rede, como firewall ou sensor passivo. | O painel mostra a cobertura e o último envio. A coleta pode ser pausada, retomada sem duplicatas e revogada por instalação. |
+| 3 · Disponibilidade | Experimentos de detecção e recuperação com métricas sintéticas de latência, erro e saturação em laboratório. Integrar alertas existentes de firewall, CDN ou provedor quando disponíveis. | Alerta, notificação e recuperação são verificados e cronometrados. |
+| 4 · Tráfego suspeito | Detectar anomalias explicáveis de conexões, DNS e identidade TLS, incluindo sinais de possível interceptação. Correlacionar com antivírus ou EDR quando disponível. | Cada alerta apresenta evidência, grau de confiança e cobertura. Casos legítimos, como rotação de certificado, fazem parte dos testes. |
+| 5 · Triagem assistida por IA | Resumir evidências sanitizadas, explicar alertas e sugerir correções revisáveis pelo analista. | O resumo referencia a evidência. As verificações continuam funcionando quando a IA está indisponível. |
+| 6 · Piloto e expansão | Validar o fluxo em ambiente próprio e depois habilitar um cliente autorizado com escopo definido. | Instalação, pausa, atualização, revogação e recuperação demonstradas. Cobertura, latência e falsos positivos revisados antes de ampliar. |

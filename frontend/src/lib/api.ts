@@ -536,6 +536,74 @@ export async function fetchAssets(token: string): Promise<AssetResponse[]> {
   return parseOrThrow(res, "Falha ao listar ativos da organização.");
 }
 
+export interface SshAuditResponse {
+  id: string;
+  status: SshAuditStatus;
+  password_authentication: "enabled" | "disabled" | "unknown" | "collection_error";
+  permit_root_login: "yes" | "no" | "prohibit-password" | "forced-commands-only" | "unknown" | "collection_error" | null;
+  permit_root_login_status: SshAuditStatus | null;
+  created_at: string;
+}
+
+type SshAuditStatus = "PASSED" | "VULNERABILITY" | "INCONCLUSIVE" | "EXECUTION_ERROR";
+
+export async function fetchLatestSshAudit(
+  token: string,
+  assetId: string
+): Promise<SshAuditResponse | null> {
+  const res = await fetch(`${API_BASE_URL}/assets/${assetId}/ssh-audit`, {
+    headers: authHeaders(token),
+    credentials: "include",
+    cache: "no-store",
+  });
+  return parseOrThrow(res, "Falha ao carregar o resultado da auditoria SSH.");
+}
+
+export interface TelemetrySource {
+  id: string;
+  name: string;
+  network: string;
+  status: "ACTIVE" | "EXPIRED" | "REVOKED";
+  expires_at: string;
+  last_received_at: string | null;
+  latest_observed_at: string | null;
+  connection_count: number;
+}
+
+export interface TelemetrySourceCreated extends TelemetrySource {
+  collector_token: string;
+}
+
+export async function fetchTelemetrySources(token: string, assetId: string): Promise<TelemetrySource[]> {
+  const res = await fetch(`${API_BASE_URL}/assets/${assetId}/telemetry-sources`, {
+    headers: authHeaders(token),
+    credentials: "include",
+    cache: "no-store",
+  });
+  return parseOrThrow(res, "Falha ao carregar as fontes de telemetria.");
+}
+
+export async function registerTelemetrySource(
+  token: string, assetId: string, payload: { name: string; network: string }
+): Promise<TelemetrySourceCreated> {
+  const res = await fetch(`${API_BASE_URL}/assets/${assetId}/telemetry-sources`, {
+    method: "POST",
+    headers: authHeaders(token),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  return parseOrThrow(res, "Falha ao cadastrar a fonte. Confira o segmento e a autorização do ativo.");
+}
+
+export async function revokeTelemetrySource(token: string, assetId: string, sourceId: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/assets/${assetId}/telemetry-sources/${sourceId}`, {
+    method: "DELETE",
+    headers: authHeaders(token),
+    credentials: "include",
+  });
+  if (!res.ok) await parseOrThrow(res, "Falha ao revogar a credencial da fonte.");
+}
+
 export async function createAsset(
   token: string,
   payload: AssetCreateRequest

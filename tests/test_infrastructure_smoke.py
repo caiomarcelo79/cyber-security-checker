@@ -9,6 +9,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 REQUIRED_MEMORY_FILES = [
     "AGENTS.md",
     "PROJECT_STATE.md",
+    "PROGRESS.md",
     "NEXT_STEPS.md",
     "ROADMAP.md",
     "ARCHITECTURE.md",

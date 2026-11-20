@@ -40,5 +40,9 @@ celery_app.conf.update(
             "task": "workers.tasks.process_due_schedules_task",
             "schedule": 60.0,
         },
+        "purge-expired-network-telemetry": {
+            "task": "workers.tasks.purge_expired_network_telemetry",
+            "schedule": 3600.0,
+        },
     },
 )

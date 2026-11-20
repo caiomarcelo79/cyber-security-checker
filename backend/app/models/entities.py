@@ -6,7 +6,18 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -142,6 +153,59 @@ class TargetAuthorization(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     asset: Mapped[Asset] = relationship(back_populates="authorizations")
+
+
+class SshAudit(Base):
+    """Observação de configuração global do OpenSSH enviada pelo operador do laboratório."""
+
+    __tablename__ = "ssh_audits"
+    __table_args__ = (Index("ix_ssh_audits_asset_created_at", "asset_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid_str)
+    asset_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("assets.id", ondelete="CASCADE"), nullable=False
+    )
+    password_authentication: Mapped[str] = mapped_column(String(24), nullable=False)
+    permit_root_login: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class TelemetrySource(Base):
+    """Instalação de um coletor, vinculada ao ativo autorizado e ao segmento observado."""
+
+    __tablename__ = "telemetry_sources"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid_str)
+    asset_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("assets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    network: Mapped[str] = mapped_column(String(49), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+
+class TelemetryConnection(Base):
+    """Metadados de uma conexão observada por uma instalação."""
+
+    __tablename__ = "telemetry_connections"
+
+    source_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("telemetry_sources.id", ondelete="CASCADE"), primary_key=True
+    )
+    uid: Mapped[str] = mapped_column(String(64), primary_key=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    origin_ip: Mapped[str] = mapped_column(String(45), nullable=False)
+    origin_port: Mapped[int] = mapped_column(Integer, nullable=False)
+    responder_ip: Mapped[str] = mapped_column(String(45), nullable=False)
+    responder_port: Mapped[int] = mapped_column(Integer, nullable=False)
+    transport: Mapped[str] = mapped_column(String(5), nullable=False)
+    origin_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    responder_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
 
 class Scan(Base):

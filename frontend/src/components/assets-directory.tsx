@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type AssetResponse,
   fetchFindingsPage,
+  fetchLatestSshAudit,
   fetchScansPage,
   updateAsset,
 } from "@/lib/api";
@@ -19,6 +20,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { TelemetrySourcesPanel } from "@/components/telemetry-sources-panel";
 
 export interface AssetListFilters {
   search: string;
@@ -44,6 +46,29 @@ export function filterAssets(
 
 const inputClass =
   "h-8 rounded-md border border-slate-300 bg-transparent px-2 text-xs dark:border-slate-700";
+
+const sshStatusLabels = {
+  PASSED: "Conforme",
+  VULNERABILITY: "Divergência de política",
+  INCONCLUSIVE: "Evidência insuficiente",
+  EXECUTION_ERROR: "Erro de coleta",
+} as const;
+
+const sshObservationLabels = {
+  enabled: "habilitada",
+  disabled: "desabilitada",
+  unknown: "indeterminada",
+  collection_error: "indisponível",
+} as const;
+
+const sshRootObservationLabels = {
+  yes: "permitido",
+  no: "bloqueado",
+  "prohibit-password": "permitido sem senha",
+  "forced-commands-only": "restrito a comandos forçados",
+  unknown: "indeterminado",
+  collection_error: "indisponível",
+} as const;
 
 interface AssetsDirectoryProps {
   token: string;
@@ -142,6 +167,12 @@ function AssetRow({
     queryFn: () => fetchFindingsPage(token, { asset_id: asset.id, limit: 1 }),
     enabled: expanded,
   });
+  const sshAuditQuery = useQuery({
+    queryKey: ["asset-ssh-audit", token, asset.id],
+    queryFn: () => fetchLatestSshAudit(token, asset.id),
+    enabled: expanded && asset.environment === "LAB",
+  });
+  const sshAudit = sshAuditQuery.data;
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -223,6 +254,34 @@ function AssetRow({
             )}
           </div>
 
+          {asset.environment === "LAB" && (
+            <div>
+              <p className="font-semibold">Auditoria SSH</p>
+              {sshAuditQuery.isLoading ? (
+                <p>Carregando auditoria SSH…</p>
+              ) : sshAuditQuery.isError ? (
+                <p role="alert" className="text-red-500">{errorMessage(sshAuditQuery.error)}</p>
+              ) : sshAudit ? (
+                <>
+                  <p>
+                    {sshStatusLabels[sshAudit.status]} · Diretiva global PasswordAuthentication{" "}
+                    {sshObservationLabels[sshAudit.password_authentication]} · {formatDateTime(sshAudit.created_at)}
+                  </p>
+                  {sshAudit.permit_root_login && sshAudit.permit_root_login_status && (
+                    <p>
+                      {sshStatusLabels[sshAudit.permit_root_login_status]} · Diretiva global de acesso de root{" "}
+                      {sshRootObservationLabels[sshAudit.permit_root_login]}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-slate-500">Nenhuma auditoria SSH registrada para este ativo.</p>
+              )}
+            </div>
+          )}
+          {asset.environment === "LAB" && (
+            <TelemetrySourcesPanel token={token} assetId={asset.id} canManage={canEdit} authorized={verified} />
+          )}
           {canEdit && !editing && (
             <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>Editar metadados</Button>
           )}

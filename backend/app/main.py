@@ -11,9 +11,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.auth_assets_routes import router as auth_assets_router
 from app.api.v1.automation_routes import router as automation_router
+from app.api.v1.network_telemetry_routes import router as network_telemetry_router
 from app.api.v1.report_routes import router as report_router
 from app.api.v1.routes import router as v1_router
 from app.api.v1.scan_routes import router as scan_router
+from app.api.v1.ssh_audit_routes import router as ssh_audit_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 
@@ -70,6 +72,8 @@ def create_app() -> FastAPI:
     application.include_router(scan_router)
     application.include_router(report_router)
     application.include_router(automation_router)
+    application.include_router(ssh_audit_router)
+    application.include_router(network_telemetry_router)
     return application
 
 

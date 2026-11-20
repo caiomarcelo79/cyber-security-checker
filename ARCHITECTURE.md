@@ -89,6 +89,7 @@ flowchart TD
 | **Reporting Engine** | `backend/app/services/reporting.py` | Gera relatórios executivos, técnicos e comparativos nos formatos JSON, CSV, HTML e PDF com evidências sanitizadas. |
 | **Worker & Scheduler** | `workers/` | Workers Celery dedicados à execução assíncrona isolada das auditorias e Celery Beat para agendamentos recorrentes. |
 | **Audit Log** | `backend/app/services/audit_log.py` | Trilha imutável de auditoria registrando logins, cadastros de ativos, validações de escopo, início/cancelamento de scans e exportações. |
+| **Telemetria de rede** | `backend/app/services/network_telemetry.py` e `scripts/desktop_collector.py` | Recebe metadados de conexões do Zeek por instalação autorizada, deduplica no PostgreSQL e expõe estado ao Console e ao desktop. O leitor local grava a posição depois da confirmação da API. |
 
 ---
 

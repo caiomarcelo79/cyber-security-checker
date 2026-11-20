@@ -2,6 +2,10 @@
 
 **Última atualização:** 2026-11-18 (Conclusão da FASE 8, Homologação v1.0.0, Ampliação de Cobertura para 53 Checks / 39 Playbooks e Melhoria de Precisão Anti-Falso-Positivo)
 
+**2026-11-20 · Pós-v1.0:** Fase 1 de SSH concluída em laboratório. A CLI lê as políticas globais de senha e acesso de root. A API registra a evidência mínima, o Console mostra os resultados e o exercício de autenticação publica uma notificação sintética no painel. Migrações e suítes validadas. Consulte [PROGRESS.md](PROGRESS.md) para reproduzir e retomar pela Fase 2.
+
+**2026-11-20 · Fase 2 de telemetria:** Importação passiva e piloto desktop validados em laboratório com Zeek, API e PostgreSQL. O Console mostra o segmento, a recepção e a contagem. O desktop pausa, retoma e persiste a posição confirmada sem armazenar a credencial. Consulte [PROGRESS.md](PROGRESS.md) para executar o piloto e [NEXT_STEPS.md](NEXT_STEPS.md) para a Fase 3.
+
 ---
 
 ## 1. Resumo Executivo do Estado Atual

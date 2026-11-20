@@ -237,3 +237,20 @@ Este documento registra as decisões arquiteturais e técnicas adotadas no desen
   - **Catálogo Determinístico CVSS v4.0, Sanitização Compulsória e 39 Playbooks**:
     - Inclusão de `CHECK_CVSS_V4_CATALOG` cobrindo todos os 53 checks no `RiskEngine`, aliado ao `_finalize_module_result` e `RiskEngine.validate_finding_consistency()` invocando `EvidenceManager.ensure_sanitized()` de forma idempotente em todos os achados.
     - Expansão do `REMEDIATION_CATALOG` com 10 novos playbooks multi-stack, totalizando **39 playbooks**.
+
+---
+
+## ADR-016 — Coleta local de configuração OpenSSH
+
+- **Contexto.** A avaliação SSH precisa vincular observações de configuração ao ativo e à autorização da organização.
+- **Decisão.** A CLI lê a configuração efetiva global no host de laboratório. A API revalida a autorização ao preparar e ao registrar a coleta, salva as duas observações tipadas em um histórico do ativo e registra a operação na trilha de auditoria.
+- **Consequências.** A classificação é síncrona e usa evidência mínima. O exercício sintético reutiliza a caixa de notificações do analista e mede o tempo de publicação no Console. A verificação cobre configurações globais e o exercício cobre o canal interno.
+
+---
+
+## ADR-017 — Ingestão de telemetria passiva por instalação
+
+- **Contexto.** O coletor desktop precisa de uma entrada de telemetria reproduzível e de uma identidade com revogação por instalação.
+- **Decisão.** Importar metadados do `conn.log` JSON do Zeek. Cada fonte é vinculada ao ativo de laboratório e a um segmento em CIDR. A API valida a fonte e a autorização do ativo a cada lote. A credencial é dedicada à ingestão da fonte e o banco armazena seu hash. A gravação serializa lotes por fonte, com unicidade de instalação e UID no PostgreSQL.
+- **Consequências.** O Console acompanha o segmento declarado, a recepção e o estado da credencial. Os registros de conexão têm retenção de sete dias com limpeza horária. O importador local usa um arquivo gerado pelo Zeek e pode reenviá-lo dentro da janela de retenção.
+- **Retomada no desktop.** A posição local só avança após a confirmação de todo o lote. O aplicativo guarda o ponto de leitura por origem da API, instalação e caminho do arquivo. A identidade do arquivo e a assinatura dos últimos bytes confirmados permitem detectar rotação e reescrita. A credencial permanece em memória durante o uso do aplicativo.

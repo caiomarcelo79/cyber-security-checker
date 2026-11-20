@@ -89,3 +89,13 @@ def process_due_schedules_task() -> dict[str, Any]:
         }
 
 
+@celery_app.task(name="workers.tasks.purge_expired_network_telemetry")
+def purge_expired_network_telemetry() -> int:
+    """Remove registros de conexão fora da janela de retenção do laboratório."""
+    from app.core.database import SessionLocal
+    from app.services.network_telemetry import purge_expired_connections
+
+    with SessionLocal() as db:
+        return purge_expired_connections(db)
+
+

@@ -10,10 +10,11 @@ Antes de iniciar qualquer implementação ou decisão arquitetural relevante:
 
 1. **Leitura Obrigatória de Contexto**:
    - Leia `PROJECT_STATE.md` para compreender o estado real do sistema, serviços ativos, portas configuradas e limitações atuais.
+   - Leia `PROGRESS.md` para identificar o último incremento, os testes executados, os bloqueios e o ponto de retomada entre ambientes.
    - Leia `NEXT_STEPS.md` e `ROADMAP.md` para identificar a fase atual, tarefas desbloqueadas e critérios objetivos de aceite.
    - Consulte `ARCHITECTURE.md`, `DECISIONS.md` e `SECURITY_SCOPE.md` antes de criar novos módulos, contratos ou alterar fluxos de segurança.
 2. **Atualização Pós-Entrega**:
-   - Ao concluir cada etapa verificável, atualize `PROJECT_STATE.md`, `NEXT_STEPS.md`, `ROADMAP.md` e `TEST_MATRIX.md`.
+   - Ao concluir cada etapa verificável, atualize `PROGRESS.md`, `PROJECT_STATE.md`, `NEXT_STEPS.md`, `ROADMAP.md` e `TEST_MATRIX.md`. Ao interromper uma etapa, registre o ponto de retomada em `PROGRESS.md`.
    - Registre decisões estruturais relevantes em `DECISIONS.md` sob o formato ADR (Architecture Decision Record).
 3. **Proibição de Falsa Conclusão**:
    - Nenhuma tarefa ou fase pode ser marcada como concluída (`[x]`) sem que o código exista, integre com as camadas reais e passe nos testes automatizados correspondentes.

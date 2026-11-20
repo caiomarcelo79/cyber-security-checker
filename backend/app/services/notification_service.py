@@ -51,6 +51,8 @@ class NotificationService:
         user_id: str | None = None,
         metadata_json: dict[str, Any] | None = None,
         dedup_window_seconds: int = 60,
+        *,
+        publish_external: bool = True,
     ) -> NotificationRecord | None:
         """Registra uma notificação in-app e dispara canais configurados (email, webhooks).
 
@@ -110,6 +112,9 @@ class NotificationService:
             event_type,
             severity_norm,
         )
+
+        if not publish_external:
+            return notification
 
         # 3. Notificação por Email baseada em preferências
         self._deliver_email_if_eligible(

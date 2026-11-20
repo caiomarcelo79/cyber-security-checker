@@ -2,6 +2,18 @@
 
 Este documento rastreia todas as capacidades implementadas no `cyber-security-checker`, seus respectivos testes automatizados, comandos de execução e status de verificação.
 
+## Plano pós-v1.0
+
+| ID | Escopo | Evidência esperada | Resultado |
+| :--- | :--- | :--- | :--- |
+| TM-025 | SSH 1.1 | OpenSSH real → CLI → API → PostgreSQL e testes de componente do Console. Estados de senha, ausência de evidência e erro de coleta. Validação de escopo, revogação, expiração e isolamento entre organizações. | **Aprovado.** Integração Docker isolada e testes do backend e frontend. |
+| TM-026 | SSH 1.2 | Política global de acesso de root, estados inconclusivos e falhas de coleta. Aceitação de evidências anteriores sem resultado de root. | **Aprovado.** Migração aplicada. OpenSSH real validado com root bloqueado, acesso sem senha e restrição a comandos forçados. Testes confirmaram a classificação e a exibição. |
+| TM-027 | SSH 1.3 | Exercício sintético em laboratório autorizado, notificação visível ao analista, tempo de publicação, isolamento de canais externos e revogação. | **Aprovado.** A CLI publicou o exercício e a API de notificações do Console retornou o alerta com o marcador sintético. Testes confirmaram o isolamento. |
+| TM-028 | Telemetria 2.1 | Zeek → importador → API → PostgreSQL. Cadastro e revogação no Console, escopo de rede, isolamento de organizações, duplicatas, limites de lote e retenção. | **Aprovado.** Zeek 9.0.1 com PCAP de laboratório, migração e concorrência no PostgreSQL, revogações, retenção e testes de componente. [Testes da API](backend/tests/test_network_telemetry.py) e [testes do Console](frontend/src/__tests__/telemetry-sources.test.tsx). |
+| TM-029 | Coletor desktop 2.2 | Pausa, reconexão, confirmação do lote, posição entre reinícios, rotação com o aplicativo aberto, truncamento e revogação. | **Aprovado.** Oito testes no Windows e criação da janela Tkinter. O leitor retomou a posição com a API e o PostgreSQL reais. [Testes do leitor](scripts/tests/test_zeek_file_collector.py) e [testes do controlador](scripts/tests/test_desktop_collector.py). |
+
+Suítes e reprodução em [PROGRESS.md](PROGRESS.md). Casos automatizados em [test_ssh_audits.py](backend/tests/test_ssh_audits.py) e [ssh-audit.test.tsx](frontend/src/__tests__/ssh-audit.test.tsx).
+
 ---
 
 ## 1. Matriz de Cobertura por Componente (Fases 0 a 5)
