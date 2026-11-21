@@ -17,6 +17,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -41,6 +42,7 @@ class Organization(Base):
     slug: Mapped[str] = mapped_column(String(120), unique=True, nullable=False, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
     )
@@ -64,6 +66,7 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(160), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
     )
@@ -87,6 +90,7 @@ class OrganizationMembership(Base):
     )
     role: Mapped[str] = mapped_column(String(40), nullable=False, default="VIEWER")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
 
     organization: Mapped[Organization] = relationship(back_populates="memberships")
     user: Mapped[User] = relationship(back_populates="memberships")
@@ -115,6 +119,7 @@ class Asset(Base):
         String(40), default="PENDING", nullable=False, index=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
     )
@@ -152,6 +157,7 @@ class TargetAuthorization(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
+
     asset: Mapped[Asset] = relationship(back_populates="authorizations")
 
 
@@ -170,6 +176,7 @@ class SshAudit(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+
 class TelemetrySource(Base):
     """Instalação de um coletor, vinculada ao ativo autorizado e ao segmento observado."""
 
@@ -183,8 +190,17 @@ class TelemetrySource(Base):
     network: Mapped[str] = mapped_column(String(49), nullable=False)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    collector_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    desired_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    poll_interval_seconds: Mapped[int] = mapped_column(Integer, default=2, server_default="2", nullable=False)
+    config_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    applied_config_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    token_generation: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 
@@ -240,6 +256,7 @@ class Scan(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
+
     asset: Mapped[Asset] = relationship(back_populates="scans")
     check_results: Mapped[list[ScanCheckResultRecord]] = relationship(
         back_populates="scan", cascade="all, delete-orphan"
@@ -268,6 +285,7 @@ class ScanCheckResultRecord(Base):
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     details: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
 
     scan: Mapped[Scan] = relationship(back_populates="check_results")
 
@@ -366,6 +384,7 @@ class ReportRecord(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     organization: Mapped[Organization] = relationship()
@@ -403,6 +422,7 @@ class ScanSchedule(Base):
         String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     organization: Mapped[Organization] = relationship()
@@ -455,6 +475,7 @@ class NotificationPreferenceRecord(Base):
     min_severity: Mapped[str] = mapped_column(String(20), default="MEDIUM", nullable=False)
     subscribed_events: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     organization: Mapped[Organization] = relationship()
@@ -480,6 +501,7 @@ class WebhookEndpointRecord(Base):
         String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     organization: Mapped[Organization] = relationship()
@@ -538,6 +560,7 @@ class ApiTokenRecord(Base):
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
+
     organization: Mapped[Organization] = relationship()
     user: Mapped[User] = relationship()
 
@@ -561,6 +584,7 @@ class ScanTemplateRecord(Base):
         String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     organization: Mapped[Organization] = relationship()
@@ -587,6 +611,7 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+
 class RevokedToken(Base):
     """JWTs revogados antes da expiração (logout). Linhas expiradas podem ser removidas."""
 
@@ -596,3 +621,284 @@ class RevokedToken(Base):
     user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     revoked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class AvailabilityExercise(Base):
+    """Exercício sintético de degradação e recuperação medido contra um alvo de laboratório."""
+
+    __tablename__ = "availability_exercises"
+    __table_args__ = (Index("ix_availability_exercises_asset_started", "asset_id", "started_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid_str)
+    asset_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("assets.id", ondelete="CASCADE"), nullable=False
+    )
+    created_by_user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    status: Mapped[str] = mapped_column(String(12), default="RUNNING", nullable=False)
+    scenario: Mapped[str] = mapped_column(String(16), default="LATENCY", server_default="LATENCY", nullable=False)
+    result: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    threshold_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    consecutive_samples: Mapped[int] = mapped_column(Integer, nullable=False)
+    interval_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    normal_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    degraded_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    alert_notification_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    recovery_notification_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    alert_publication_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    recovery_publication_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AvailabilitySample(Base):
+    """Amostra de latência: apenas sequência, deslocamento, latência, desfecho e status HTTP."""
+
+    __tablename__ = "availability_samples"
+
+    exercise_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("availability_exercises.id", ondelete="CASCADE"), primary_key=True
+    )
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True)
+    offset_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    outcome: Mapped[str] = mapped_column(String(20), nullable=False)
+    http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class AvailabilitySignal(Base):
+    """Sinal estruturado opcional de firewall, CDN ou provedor correlacionado ao exercício."""
+
+    __tablename__ = "availability_signals"
+    __table_args__ = (Index("ix_availability_signals_exercise_offset", "exercise_id", "offset_ms"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid_str)
+    exercise_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("availability_exercises.id", ondelete="CASCADE"), nullable=False
+    )
+    source_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    signal: Mapped[str] = mapped_column(String(24), nullable=False)
+    offset_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+
+class TelemetryTlsBaseline(Base):
+    """Linha de base de identidade TLS confiável por fonte, SNI e endpoint."""
+
+    __tablename__ = "telemetry_tls_baselines"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_id",
+            "server_name",
+            "responder_ip",
+            "responder_port",
+            name="uq_tls_baseline_target",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid_str)
+    source_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("telemetry_sources.id", ondelete="CASCADE"), nullable=False
+    )
+    server_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    responder_ip: Mapped[str] = mapped_column(String(45), nullable=False)
+    responder_port: Mapped[int] = mapped_column(Integer, nullable=False)
+    cert_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    issuer: Mapped[str] = mapped_column(String(255), nullable=False)
+    not_before: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    not_after: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    rotation_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class TrafficAnalysisRun(Base):
+    """Execução de análise determinística de tráfego suspeito sobre uma fonte autorizada."""
+
+    __tablename__ = "traffic_analysis_runs"
+    __table_args__ = (Index("ix_traffic_analysis_runs_asset_created", "asset_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid_str)
+    asset_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("assets.id", ondelete="CASCADE"), nullable=False
+    )
+    source_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("telemetry_sources.id", ondelete="CASCADE"), nullable=False
+    )
+    observed_layers: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    missing_layers: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    connection_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    dns_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    tls_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    edr_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    alerts_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    benign_rotations_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+
+class SuspiciousTrafficAlert(Base):
+    """Alerta explicável de tráfego suspeito com evidência sanitizada, confiança e cobertura."""
+
+    __tablename__ = "suspicious_traffic_alerts"
+    __table_args__ = (Index("ix_suspicious_traffic_alerts_run", "run_id"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid_str)
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("traffic_analysis_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    rule_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    category: Mapped[str] = mapped_column(String(24), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)
+    confidence: Mapped[str] = mapped_column(String(16), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    explanation: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    observed_layers: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    missing_layers: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+
+class TrafficTlsDecision(Base):
+    """Decisão auditável por handshake TLS (baseline, inalterado, rotação legítima ou alerta)."""
+
+    __tablename__ = "traffic_tls_decisions"
+    __table_args__ = (Index("ix_traffic_tls_decisions_run", "run_id"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid_str)
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("traffic_analysis_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    uid: Mapped[str] = mapped_column(String(64), nullable=False)
+    server_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    responder_ip: Mapped[str] = mapped_column(String(45), nullable=False)
+    responder_port: Mapped[int] = mapped_column(Integer, nullable=False)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    observed_cert_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    previous_cert_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    observed_issuer: Mapped[str] = mapped_column(String(255), nullable=False)
+    previous_issuer: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    reason: Mapped[str] = mapped_column(String(255), nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class TrafficEdrSignal(Base):
+    """Sinal opcional de antivírus ou EDR correlacionado à análise de tráfego suspeito."""
+
+    __tablename__ = "traffic_edr_signals"
+    __table_args__ = (Index("ix_traffic_edr_signals_run", "run_id"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid_str)
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("traffic_analysis_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    uid: Mapped[str] = mapped_column(String(64), nullable=False)
+    host_ip: Mapped[str] = mapped_column(String(45), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    signal: Mapped[str] = mapped_column(String(32), nullable=False)
+    process_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    detail: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AiTriageSuggestion(Base):
+    """Sugestão revisável de triagem assistida gerada sobre evidência sanitizada (Fase 5)."""
+
+    __tablename__ = "ai_triage_suggestions"
+    __table_args__ = (
+        Index("ix_ai_triage_traffic_alert", "traffic_alert_id", "created_at"),
+        Index("ix_ai_triage_finding", "finding_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid_str)
+    organization_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    asset_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("assets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    target_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    traffic_alert_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("suspicious_traffic_alerts.id", ondelete="CASCADE"), nullable=True
+    )
+    finding_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("findings.id", ondelete="CASCADE"), nullable=True
+    )
+    generation_mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    ai_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    explanation: Mapped[str] = mapped_column(Text, nullable=False)
+    recommended_action: Mapped[str] = mapped_column(String(32), nullable=False)
+    remediation_steps: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    evidence_citations: Mapped[list[dict[str, str]]] = mapped_column(JSON, default=list, nullable=False)
+    sanitized_evidence_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    review_status: Mapped[str] = mapped_column(
+        String(24), default="PENDING_REVIEW", server_default="PENDING_REVIEW", nullable=False
+    )
+    reviewer_user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    reviewer_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class PilotEnrollment(Base):
+    """Habilitação de piloto em ambiente próprio ou cliente autorizado com escopo definido (Fase 6)."""
+
+    __tablename__ = "pilot_enrollments"
+    __table_args__ = (Index("ix_pilot_enrollments_org_asset", "organization_id", "asset_id"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid_str)
+    organization_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    asset_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("assets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    stage: Mapped[str] = mapped_column(String(24), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="ACTIVE", server_default="ACTIVE", nullable=False)
+    prerequisite_pilot_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("pilot_enrollments.id", ondelete="SET NULL"), nullable=True
+    )
+    allowed_cidrs: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    enabled_capabilities: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    max_sources: Mapped[int] = mapped_column(Integer, default=2, server_default="2", nullable=False)
+    scope_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PilotReview(Base):
+    """Revisão formal de cobertura, latência e falsos positivos antes da expansão (Fase 6)."""
+
+    __tablename__ = "pilot_reviews"
+    __table_args__ = (Index("ix_pilot_reviews_pilot_created", "pilot_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid_str)
+    pilot_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("pilot_enrollments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    organization_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    decision: Mapped[str] = mapped_column(String(32), nullable=False)
+    coverage_ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    latency_ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    false_positives_ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    reviewer_user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metrics_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)

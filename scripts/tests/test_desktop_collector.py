@@ -80,3 +80,72 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(display_times(source)[1], "8 s")
         source["last_received_at"] = "2026-11-20T11:00:00Z"
         self.assertEqual(display_times(source)[1], "—")
+
+    @patch("desktop_collector.RETRY_SECONDS", 0.01)
+    @patch("desktop_collector.POLL_SECONDS", 0.01)
+    def test_remote_pause_applies_update_and_preserves_checkpoint_on_recovery(self):
+        from zeek_file_collector import ZeekFileCollector
+
+        class LifecycleApi:
+            def __init__(self):
+                self.remote_paused = True
+                self.heartbeats = []
+                self.submitted = []
+                self.confirmed = Event()
+
+            def status(self):
+                return {
+                    "name": "Sensor piloto",
+                    "network": "192.168.50.0/24",
+                    "status": "PAUSED" if self.remote_paused else "ACTIVE",
+                    "config_version": 2,
+                    "poll_interval_seconds": 1,
+                }
+
+            def heartbeat(self, collector_version, applied_config_version=None):
+                self.heartbeats.append((collector_version, applied_config_version))
+                return {**self.status(), "collector_version": collector_version}
+
+            def submit(self, batch):
+                self.submitted.extend(item["uid"] for item in batch)
+                self.confirmed.set()
+                return len(batch), 0
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            log = root / "conn.log"
+            checkpoint = root / "state.json"
+            log.write_bytes(zeek_line("CBefore"))
+
+            # Batch 1 enviado e checkpoint salvo antes da revogação/recuperação
+            with ZeekFileCollector(log, checkpoint) as collector:
+                self.assertEqual(collector.sync_once(lambda b: (len(b), 0)), (1, 0))
+            log.write_bytes(zeek_line("CBefore") + zeek_line("CAfterRecover"))
+
+            api = LifecycleApi()
+            paused, stopped = Event(), Event()
+            updates: Queue[CollectorUpdate] = Queue()
+            worker = Thread(target=collect, args=(api, log, checkpoint, paused, stopped, updates))
+            worker.start()
+            try:
+                saw_config = False
+                saw_pause = False
+                for _ in range(10):
+                    msg = updates.get(timeout=3).message
+                    if "Configuração v2 aplicada" in msg:
+                        saw_config = True
+                    if "pausada pelo Console" in msg:
+                        saw_pause = True
+                    if saw_config and saw_pause:
+                        break
+                self.assertTrue(saw_config)
+                self.assertTrue(saw_pause)
+                self.assertEqual(api.submitted, [])
+                api.remote_paused = False
+                self.assertTrue(api.confirmed.wait(3))
+            finally:
+                stopped.set()
+                worker.join(3)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(api.submitted, ["CAfterRecover"])
+            self.assertTrue(any(cfg == 2 for _, cfg in api.heartbeats))

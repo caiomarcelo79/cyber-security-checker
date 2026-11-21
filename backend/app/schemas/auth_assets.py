@@ -146,9 +146,10 @@ class AssetCreateRequest(BaseModel):
 
 
 class AssetUpdateRequest(BaseModel):
-    """Atualização parcial de metadados de um ativo da organização."""
+    """Atualização parcial de metadados e alvo de um ativo da organização."""
 
     name: str | None = Field(default=None, min_length=2, max_length=180)
+    target_url: str | None = Field(default=None, min_length=7, max_length=512)
     environment: EnvironmentLiteral | None = None
     owner_name: str | None = Field(default=None, min_length=2, max_length=160)
     owner_email: str | None = Field(default=None, min_length=5, max_length=255)

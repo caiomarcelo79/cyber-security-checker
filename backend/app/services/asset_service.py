@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.security import generate_target_verification_token
-from app.models.entities import Asset, TargetAuthorization
+from app.models.entities import Asset, Scan, TargetAuthorization
 from app.schemas.auth_assets import (
     AssetCreateRequest,
     AssetResponse,
@@ -300,10 +300,77 @@ class AssetAuthorizationService:
         ip_address: str | None = None,
     ) -> AssetResponse:
         asset = cls.get_asset_or_404(db, organization_id, asset_id)
+        old_target_url = asset.target_url
+        old_hostname = asset.hostname
+        old_environment = asset.environment
+        old_parsed = urlparse(old_target_url)
+        old_origin = (old_parsed.scheme.lower(), old_parsed.netloc.lower())
+        authorization_reset = False
+
+        if payload.target_url is not None:
+            normalized_url, hostname = cls._extract_and_validate_target(payload.target_url)
+            new_parsed = urlparse(normalized_url)
+            new_origin = (new_parsed.scheme.lower(), new_parsed.netloc.lower())
+            origin_changed = new_origin != old_origin or hostname != old_hostname
+            if origin_changed:
+                active_scan = db.scalar(
+                    select(Scan).where(
+                        Scan.asset_id == asset.id,
+                        Scan.organization_id == organization_id,
+                        Scan.status.in_(["PENDING", "QUEUED", "RUNNING"]),
+                    )
+                )
+                if active_scan is not None:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=(
+                            "Não é possível alterar o domínio/URL enquanto houver uma "
+                            "auditoria ativa para este ativo."
+                        ),
+                    )
+                asset.target_url = normalized_url
+                asset.hostname = hostname
+                active_auths = db.scalars(
+                    select(TargetAuthorization).where(
+                        TargetAuthorization.asset_id == asset.id,
+                        TargetAuthorization.organization_id == organization_id,
+                        TargetAuthorization.status.in_(["PENDING", "VERIFIED"]),
+                    )
+                ).all()
+                for auth in active_auths:
+                    auth.status = "REVOKED"
+                asset.authorization_status = "PENDING"
+                authorization_reset = True
+            else:
+                asset.target_url = normalized_url
+
         if payload.name is not None:
             asset.name = payload.name.strip()
         if payload.environment is not None:
             asset.environment = payload.environment
+            if asset.environment in {"PRODUCTION", "STAGING"}:
+                lab_auths = db.scalars(
+                    select(TargetAuthorization).where(
+                        TargetAuthorization.asset_id == asset.id,
+                        TargetAuthorization.organization_id == organization_id,
+                        TargetAuthorization.method == "LAB_INTERNAL",
+                        TargetAuthorization.status.in_(["PENDING", "VERIFIED"]),
+                    )
+                ).all()
+                for auth in lab_auths:
+                    auth.status = "REVOKED"
+                db.flush()
+                if asset.authorization_status == "VERIFIED":
+                    other_verified = db.scalar(
+                        select(TargetAuthorization).where(
+                            TargetAuthorization.asset_id == asset.id,
+                            TargetAuthorization.organization_id == organization_id,
+                            TargetAuthorization.status == "VERIFIED",
+                        )
+                    )
+                    if other_verified is None:
+                        asset.authorization_status = "PENDING"
+                        authorization_reset = True
         if payload.owner_name is not None:
             asset.owner_name = payload.owner_name.strip()
         if payload.owner_email is not None:
@@ -325,7 +392,16 @@ class AssetAuthorizationService:
             organization_id=organization_id,
             user_id=user_id,
             ip_address=ip_address,
-            metadata={"name": asset.name, "environment": asset.environment},
+            metadata={
+                "name": asset.name,
+                "environment": asset.environment,
+                "old_environment": old_environment,
+                "target_url": asset.target_url,
+                "hostname": asset.hostname,
+                "old_target_url": old_target_url,
+                "old_hostname": old_hostname,
+                "authorization_reset": authorization_reset,
+            },
         )
         db.commit()
         db.refresh(asset)

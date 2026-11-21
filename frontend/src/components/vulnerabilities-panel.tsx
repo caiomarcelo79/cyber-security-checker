@@ -7,6 +7,7 @@ import {
   type AssetResponse,
   type FindingFilters,
   type FindingResponse,
+  createFindingTriageSuggestion,
   fetchFinding,
   fetchFindingHistory,
   fetchFindingsPage,
@@ -15,6 +16,7 @@ import {
   updateFindingStatus,
 } from "@/lib/api";
 import {
+  canManageScans,
   canTriage,
   CLASSIFICATION_LABEL,
   CONFIDENCE_LABEL,
@@ -30,6 +32,7 @@ import {
   TREATMENT_LABEL,
   TREATMENT_OPTIONS,
 } from "@/lib/soc-utils";
+import { AiTriageCard } from "@/components/ai-triage-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -662,6 +665,12 @@ function FindingDetailPanel({
           )}
           {feedback && <p role="status" className="mt-1 text-sky-500">{feedback}</p>}
           {revalFeedback && <p role="status" className="mt-1 font-semibold">{revalFeedback}</p>}
+          <AiTriageCard
+            token={token}
+            targetLabel={f.check_id}
+            canReview={canManageScans(role)}
+            onGenerate={() => createFindingTriageSuggestion(token, f.id)}
+          />
         </section>
 
         <section aria-label="Histórico">

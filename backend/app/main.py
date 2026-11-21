@@ -1,4 +1,4 @@
-"""Aplicação principal FastAPI do cyber-security-checker."""
+﻿"""AplicaÃ§Ã£o principal FastAPI do cyber-security-checker."""
 
 from __future__ import annotations
 
@@ -9,13 +9,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.v1.ai_triage_routes import router as ai_triage_router
 from app.api.v1.auth_assets_routes import router as auth_assets_router
 from app.api.v1.automation_routes import router as automation_router
+from app.api.v1.availability_routes import router as availability_router
 from app.api.v1.network_telemetry_routes import router as network_telemetry_router
+from app.api.v1.pilot_routes import router as pilot_router
 from app.api.v1.report_routes import router as report_router
 from app.api.v1.routes import router as v1_router
 from app.api.v1.scan_routes import router as scan_router
+from app.api.v1.security_tools_routes import router as security_tools_router
 from app.api.v1.ssh_audit_routes import router as ssh_audit_router
+from app.api.v1.suspicious_traffic_routes import router as suspicious_traffic_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 
@@ -26,18 +31,18 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     configure_logging(settings.log_level)
     problems = settings.validate_production_safety()
     if problems:
-        raise RuntimeError("Configuração insegura para produção: " + " | ".join(problems))
+        raise RuntimeError("ConfiguraÃ§Ã£o insegura para produÃ§Ã£o: " + " | ".join(problems))
     yield
 
 
 def create_app() -> FastAPI:
-    """Factory da aplicação FastAPI com cabeçalhos de segurança e rotas versionadas."""
+    """Factory da aplicaÃ§Ã£o FastAPI com cabeÃ§alhos de seguranÃ§a e rotas versionadas."""
     settings = get_settings()
     application = FastAPI(
         title="Cyber-Security-Checker API",
         description=(
-            "API de gerenciamento de vulnerabilidades, validação de escopo, orquestração de auditorias "
-            "e recomendações técnicas de correção."
+            "API de gerenciamento de vulnerabilidades, validaÃ§Ã£o de escopo, orquestraÃ§Ã£o de auditorias "
+            "e recomendaÃ§Ãµes tÃ©cnicas de correÃ§Ã£o."
         ),
         version=settings.app_version,
         lifespan=lifespan,
@@ -73,7 +78,12 @@ def create_app() -> FastAPI:
     application.include_router(report_router)
     application.include_router(automation_router)
     application.include_router(ssh_audit_router)
+    application.include_router(availability_router)
     application.include_router(network_telemetry_router)
+    application.include_router(suspicious_traffic_router)
+    application.include_router(ai_triage_router)
+    application.include_router(pilot_router)
+    application.include_router(security_tools_router)
     return application
 
 

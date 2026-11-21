@@ -67,6 +67,13 @@ class Settings(BaseSettings):
     webhook_delivery_timeout_sec: int = Field(default=10, alias="WEBHOOK_DELIVERY_TIMEOUT_SEC")
     webhook_max_retries: int = Field(default=3, alias="WEBHOOK_MAX_RETRIES")
 
+    # Triagem assistida por IA (Fase 5 — opcional e resiliente)
+    ai_triage_enabled: bool = Field(default=False, alias="AI_TRIAGE_ENABLED")
+    ai_triage_endpoint_url: str = Field(default="", alias="AI_TRIAGE_ENDPOINT_URL")
+    ai_triage_model: str = Field(default="csc-secops-triage-v1", alias="AI_TRIAGE_MODEL")
+    ai_triage_timeout_seconds: float = Field(default=4.0, alias="AI_TRIAGE_TIMEOUT_SECONDS")
+    ai_triage_api_key: str = Field(default="", alias="AI_TRIAGE_API_KEY")
+
     @property
     def is_production(self) -> bool:
         return self.app_env.lower() in {"production", "prod"}

@@ -20,6 +20,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AvailabilityPanel } from "@/components/availability-panel";
+import { SuspiciousTrafficPanel } from "@/components/suspicious-traffic-panel";
 import { TelemetrySourcesPanel } from "@/components/telemetry-sources-panel";
 
 export interface AssetListFilters {
@@ -28,7 +30,7 @@ export interface AssetListFilters {
   authorization: string;
 }
 
-/** Filtragem local da lista de ativos já carregada do backend (lista pequena por organização). */
+/** Filtragem local da lista de ativos jÃ¡ carregada do backend (lista pequena por organizaÃ§Ã£o). */
 export function filterAssets(
   assets: AssetResponse[],
   f: AssetListFilters
@@ -49,8 +51,8 @@ const inputClass =
 
 const sshStatusLabels = {
   PASSED: "Conforme",
-  VULNERABILITY: "Divergência de política",
-  INCONCLUSIVE: "Evidência insuficiente",
+  VULNERABILITY: "DivergÃªncia de polÃ­tica",
+  INCONCLUSIVE: "EvidÃªncia insuficiente",
   EXECUTION_ERROR: "Erro de coleta",
 } as const;
 
@@ -58,16 +60,16 @@ const sshObservationLabels = {
   enabled: "habilitada",
   disabled: "desabilitada",
   unknown: "indeterminada",
-  collection_error: "indisponível",
+  collection_error: "indisponÃ­vel",
 } as const;
 
 const sshRootObservationLabels = {
   yes: "permitido",
   no: "bloqueado",
   "prohibit-password": "permitido sem senha",
-  "forced-commands-only": "restrito a comandos forçados",
+  "forced-commands-only": "restrito a comandos forÃ§ados",
   unknown: "indeterminado",
-  collection_error: "indisponível",
+  collection_error: "indisponÃ­vel",
 } as const;
 
 interface AssetsDirectoryProps {
@@ -76,6 +78,7 @@ interface AssetsDirectoryProps {
   orgName: string;
   assets: AssetResponse[];
   selectedAssetId: string | null;
+  pilotAssetIds?: Set<string>;
   onManageAuthorization: (assetId: string) => void;
   onAudit: (assetId: string) => void;
   onViewFindings: (assetId: string) => void;
@@ -94,24 +97,24 @@ export function AssetsDirectory(props: AssetsDirectoryProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Ativos da Organização ({props.orgName})</CardTitle>
+        <CardTitle>Ativos da OrganizaÃ§Ã£o ({props.orgName})</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 text-xs">
         <div className="grid grid-cols-3 gap-2" role="search" aria-label="Filtros de ativos">
-          <input aria-label="Buscar ativos" placeholder="Nome, URL, responsável, tag…" className={inputClass} value={filters.search} onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))} />
+          <input aria-label="Buscar ativos" placeholder="Nome, URL, responsÃ¡vel, tagâ€¦" className={inputClass} value={filters.search} onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))} />
           <select aria-label="Filtrar ativos por ambiente" className={inputClass} value={filters.environment} onChange={(e) => setFilters((f) => ({ ...f, environment: e.target.value }))}>
             <option value="">Todos os ambientes</option>
             {["PRODUCTION", "STAGING", "DEVELOPMENT", "LAB"].map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
-          <select aria-label="Filtrar ativos por autorização" className={inputClass} value={filters.authorization} onChange={(e) => setFilters((f) => ({ ...f, authorization: e.target.value }))}>
-            <option value="">Toda autorização</option>
+          <select aria-label="Filtrar ativos por autorizaÃ§Ã£o" className={inputClass} value={filters.authorization} onChange={(e) => setFilters((f) => ({ ...f, authorization: e.target.value }))}>
+            <option value="">Toda autorizaÃ§Ã£o</option>
             {["PENDING", "VERIFIED", "EXPIRED", "REVOKED"].map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
         </div>
 
         {props.assets.length === 0 ? (
           <p className="text-slate-500">
-            Nenhum ativo cadastrado nesta organização. Utilize o formulário ao lado para registrar o primeiro sistema.
+            Nenhum ativo cadastrado nesta organizaÃ§Ã£o. Utilize o formulÃ¡rio ao lado para registrar o primeiro sistema.
           </p>
         ) : visible.length === 0 ? (
           <p className="text-slate-500" data-testid="assets-empty-filter">Nenhum ativo corresponde aos filtros.</p>
@@ -121,6 +124,7 @@ export function AssetsDirectory(props: AssetsDirectoryProps) {
               key={asset.id}
               asset={asset}
               {...props}
+              inPilot={Boolean(props.pilotAssetIds?.has(asset.id))}
               expanded={expandedId === asset.id}
               onToggle={() => setExpandedId((cur) => (cur === asset.id ? null : asset.id))}
             />
@@ -131,11 +135,26 @@ export function AssetsDirectory(props: AssetsDirectoryProps) {
   );
 }
 
+function isValidTargetUrl(raw: string): boolean {
+  try {
+    const parsed = new URL(raw);
+    return (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      Boolean(parsed.hostname) &&
+      !parsed.username &&
+      !parsed.password
+    );
+  } catch {
+    return false;
+  }
+}
+
 function AssetRow({
   asset,
   token,
   role,
   selectedAssetId,
+  inPilot,
   expanded,
   onToggle,
   onManageAuthorization,
@@ -144,6 +163,7 @@ function AssetRow({
   onOpenScan,
 }: AssetsDirectoryProps & {
   asset: AssetResponse;
+  inPilot: boolean;
   expanded: boolean;
   onToggle: () => void;
 }) {
@@ -152,10 +172,21 @@ function AssetRow({
   const verified = asset.authorization_status === "VERIFIED";
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(asset.name);
+  const [targetUrl, setTargetUrl] = useState(asset.target_url);
   const [ownerName, setOwnerName] = useState(asset.owner_name);
   const [ownerEmail, setOwnerEmail] = useState(asset.owner_email);
   const [environment, setEnvironment] = useState<AssetResponse["environment"]>(asset.environment);
   const [feedback, setFeedback] = useState<string | null>(null);
+
+  function startEditing() {
+    setName(asset.name);
+    setTargetUrl(asset.target_url);
+    setOwnerName(asset.owner_name);
+    setOwnerEmail(asset.owner_email);
+    setEnvironment(asset.environment);
+    setFeedback(null);
+    setEditing(true);
+  }
 
   const scansQuery = useQuery({
     queryKey: ["asset-scans", token, asset.id],
@@ -174,25 +205,40 @@ function AssetRow({
   });
   const sshAudit = sshAuditQuery.data;
 
+  const trimmedUrl = targetUrl.trim();
   const mutation = useMutation({
     mutationFn: () =>
       updateAsset(token, asset.id, {
         name: name.trim(),
+        target_url: trimmedUrl,
         owner_name: ownerName.trim(),
         owner_email: ownerEmail.trim(),
         environment,
       }),
-    onSuccess: () => {
-      setFeedback("Ativo atualizado.");
+    onSuccess: (updated) => {
+      if (
+        updated.hostname !== asset.hostname ||
+        updated.authorization_status !== asset.authorization_status
+      ) {
+        setFeedback(
+          "Ativo atualizado. Como o domínio/ambiente foi alterado, valide novamente a comprovação de autorização."
+        );
+      } else {
+        setFeedback("Ativo atualizado.");
+      }
       setEditing(false);
       void queryClient.invalidateQueries({ queryKey: ["org-assets"] });
+      void queryClient.invalidateQueries({ queryKey: ["asset-authorizations"] });
     },
     onError: (e) => setFeedback(errorMessage(e)),
   });
 
   const canEdit = canManageScans(role);
   const invalidEdit =
-    name.trim().length < 2 || ownerName.trim().length < 2 || !/^\S+@\S+\.\S+$/.test(ownerEmail.trim());
+    name.trim().length < 2 ||
+    !isValidTargetUrl(trimmedUrl) ||
+    ownerName.trim().length < 2 ||
+    !/^\S+@\S+\.\S+$/.test(ownerEmail.trim());
 
   return (
     <div className={`rounded-md border p-3 transition-colors ${selectedAssetId === asset.id ? "border-sky-500 bg-sky-500/5" : "border-slate-200 dark:border-slate-800"}`}>
@@ -207,15 +253,15 @@ function AssetRow({
         </div>
       </div>
       <p className="mt-1 font-mono text-slate-500">{asset.target_url} (Host: {asset.hostname})</p>
-      <p className="mt-1 text-slate-500">Responsável: {asset.owner_name} ({asset.owner_email})</p>
+      <p className="mt-1 text-slate-500">ResponsÃ¡vel: {asset.owner_name} ({asset.owner_email})</p>
       <div className="mt-2 flex flex-wrap gap-2">
         <Button size="sm" variant="secondary" onClick={() => onManageAuthorization(asset.id)}>
-          Gerenciar Comprovação de Autorização
+          Gerenciar ComprovaÃ§Ã£o de AutorizaÃ§Ã£o
         </Button>
         {verified ? (
           <Button size="sm" onClick={() => onAudit(asset.id)}>Auditar este Ativo</Button>
         ) : (
-          <span className="self-center text-slate-500">Auditoria bloqueada: autorização não verificada.</span>
+          <span className="self-center text-slate-500">Auditoria bloqueada: autorizaÃ§Ã£o nÃ£o verificada.</span>
         )}
         <Button size="sm" variant="outline" aria-expanded={expanded} onClick={onToggle}>
           {expanded ? "Ocultar detalhes" : "Ver detalhes"}
@@ -225,19 +271,19 @@ function AssetRow({
       {expanded && (
         <div className="mt-3 space-y-2 border-t border-slate-200 pt-3 dark:border-slate-800">
           <p>
-            Tags: {asset.tags.join(", ") || "—"} · Caminhos excluídos: {asset.excluded_paths.join(", ") || "—"}
+            Tags: {asset.tags.join(", ") || "â€”"} Â· Caminhos excluÃ­dos: {asset.excluded_paths.join(", ") || "â€”"}
           </p>
           <p>
             Vulnerabilidades registradas:{" "}
-            <strong>{findingsQuery.isLoading ? "…" : findingsQuery.data?.total ?? 0}</strong>{" "}
+            <strong>{findingsQuery.isLoading ? "â€¦" : findingsQuery.data?.total ?? 0}</strong>{" "}
             <Button size="sm" variant="outline" onClick={() => onViewFindings(asset.id)}>Acessar resultados</Button>
           </p>
           <div>
             <p className="font-semibold">
-              Histórico de auditorias ({scansQuery.data?.total ?? 0})
+              HistÃ³rico de auditorias ({scansQuery.data?.total ?? 0})
             </p>
             {scansQuery.isLoading ? (
-              <p>Carregando…</p>
+              <p>Carregandoâ€¦</p>
             ) : scansQuery.isError ? (
               <p role="alert" className="text-red-500">{errorMessage(scansQuery.error)}</p>
             ) : (scansQuery.data?.items ?? []).length === 0 ? (
@@ -246,7 +292,7 @@ function AssetRow({
               <ul className="space-y-1">
                 {scansQuery.data!.items.map((s) => (
                   <li key={s.id}>
-                    {formatDateTime(s.created_at)} · {s.profile_type} · {SCAN_STATUS_LABEL[s.status] ?? s.status}{" "}
+                    {formatDateTime(s.created_at)} Â· {s.profile_type} Â· {SCAN_STATUS_LABEL[s.status] ?? s.status}{" "}
                     <Button size="sm" variant="outline" onClick={() => onOpenScan(s.id)}>Abrir</Button>
                   </li>
                 ))}
@@ -258,18 +304,18 @@ function AssetRow({
             <div>
               <p className="font-semibold">Auditoria SSH</p>
               {sshAuditQuery.isLoading ? (
-                <p>Carregando auditoria SSH…</p>
+                <p>Carregando auditoria SSHâ€¦</p>
               ) : sshAuditQuery.isError ? (
                 <p role="alert" className="text-red-500">{errorMessage(sshAuditQuery.error)}</p>
               ) : sshAudit ? (
                 <>
                   <p>
-                    {sshStatusLabels[sshAudit.status]} · Diretiva global PasswordAuthentication{" "}
-                    {sshObservationLabels[sshAudit.password_authentication]} · {formatDateTime(sshAudit.created_at)}
+                    {sshStatusLabels[sshAudit.status]} Â· Diretiva global PasswordAuthentication{" "}
+                    {sshObservationLabels[sshAudit.password_authentication]} Â· {formatDateTime(sshAudit.created_at)}
                   </p>
                   {sshAudit.permit_root_login && sshAudit.permit_root_login_status && (
                     <p>
-                      {sshStatusLabels[sshAudit.permit_root_login_status]} · Diretiva global de acesso de root{" "}
+                      {sshStatusLabels[sshAudit.permit_root_login_status]} Â· Diretiva global de acesso de root{" "}
                       {sshRootObservationLabels[sshAudit.permit_root_login]}
                     </p>
                   )}
@@ -280,10 +326,20 @@ function AssetRow({
             </div>
           )}
           {asset.environment === "LAB" && (
-            <TelemetrySourcesPanel token={token} assetId={asset.id} canManage={canEdit} authorized={verified} />
+            <>
+              <TelemetrySourcesPanel token={token} assetId={asset.id} canManage={canEdit} authorized={verified} />
+              <AvailabilityPanel token={token} assetId={asset.id} />
+              <SuspiciousTrafficPanel token={token} assetId={asset.id} canManage={canEdit} />
+            </>
+          )}
+          {inPilot && asset.environment !== "LAB" && (
+            <>
+              <TelemetrySourcesPanel token={token} assetId={asset.id} canManage={canEdit} authorized={verified} />
+              <SuspiciousTrafficPanel token={token} assetId={asset.id} canManage={canEdit} />
+            </>
           )}
           {canEdit && !editing && (
-            <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>Editar metadados</Button>
+            <Button size="sm" variant="secondary" onClick={startEditing}>Editar ativo / domínio</Button>
           )}
           {editing && (
             <form
@@ -298,9 +354,21 @@ function AssetRow({
               <select aria-label="Ambiente do ativo" className={inputClass} value={environment} onChange={(e) => setEnvironment(e.target.value as AssetResponse["environment"])}>
                 {["PRODUCTION", "STAGING", "DEVELOPMENT", "LAB"].map((v) => <option key={v} value={v}>{v}</option>)}
               </select>
-              <input aria-label="Responsável" className={inputClass} value={ownerName} onChange={(e) => setOwnerName(e.target.value)} />
-              <input aria-label="E-mail do responsável" className={inputClass} value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} />
-              {invalidEdit && <p role="alert" className="col-span-2 text-red-500">Informe nome, responsável e e-mail válidos.</p>}
+              <input
+                aria-label="URL ou domínio do ativo"
+                placeholder="http://localhost:8080 ou https://app.exemplo.local"
+                className={`${inputClass} col-span-2 font-mono`}
+                value={targetUrl}
+                onChange={(e) => setTargetUrl(e.target.value)}
+              />
+              {trimmedUrl !== asset.target_url && (
+                <p className="col-span-2 text-amber-600 dark:text-amber-400">
+                  Alterar o domínio/origem redefine a autorização para PENDING e exige nova comprovação.
+                </p>
+              )}
+              <input aria-label="ResponsÃ¡vel" className={inputClass} value={ownerName} onChange={(e) => setOwnerName(e.target.value)} />
+              <input aria-label="E-mail do responsÃ¡vel" className={inputClass} value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} />
+              {invalidEdit && <p role="alert" className="col-span-2 text-red-500">Informe nome, URL http(s) válida sem credenciais, responsável e e-mail válidos.</p>}
               <div className="col-span-2 space-x-2">
                 <Button size="sm" type="submit" disabled={invalidEdit || mutation.isPending}>Salvar</Button>
                 <Button size="sm" type="button" variant="outline" onClick={() => setEditing(false)}>Cancelar</Button>

@@ -29,6 +29,12 @@ def test_register_login_me_and_logout_flow(client: TestClient) -> None:
     assert me_resp.status_code == 200
     assert me_resp.json()["user"]["full_name"] == "Admin SecOps Alpha"
 
+    # Restauração de sessão via cookie HttpOnly após recarregamento (sem cabeçalho Authorization)
+    me_cookie_resp = client.get("/api/v1/auth/me")
+    assert me_cookie_resp.status_code == 200
+    assert me_cookie_resp.json()["user"]["email"] == "admin@secops-alpha.com.br"
+    assert "csc_access_token" in me_cookie_resp.cookies
+
     # Login com senha incorreta deve retornar 401
     bad_login = client.post(
         "/api/v1/auth/login",

@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.models.entities import Scan
 from app.services.asset_service import AssetAuthorizationService
 
 
@@ -213,3 +214,139 @@ def test_dns_txt_and_http_well_known_verification_methods(
         http_transport=mock_transport,
     )
     assert verified_http.status == "VERIFIED"
+
+
+def test_update_asset_target_url_resets_authorization_and_blocks_ssrf(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    headers, org_id, user_id = _register_and_get_headers(
+        client, email="asset-editor@lab.local"
+    )
+
+    asset_resp = client.post(
+        "/api/v1/assets",
+        headers=headers,
+        json={
+            "name": "Alvo Editável",
+            "target_url": "http://lab-target.internal:8080/app",
+            "asset_type": "WEB_APP",
+            "environment": "LAB",
+            "owner_name": "Equipe AppSec",
+            "owner_email": "appsec@lab.local",
+        },
+    )
+    assert asset_resp.status_code == 201
+    asset_id = asset_resp.json()["id"]
+
+    init_resp = client.post(
+        f"/api/v1/assets/{asset_id}/authorizations",
+        headers=headers,
+        json={"method": "LAB_INTERNAL", "scope_notes": "Lab inicial"},
+    )
+    assert init_resp.status_code == 201
+    first_auth_id = init_resp.json()["id"]
+
+    verify_resp = client.post(
+        f"/api/v1/assets/{asset_id}/authorizations/{first_auth_id}/verify",
+        headers=headers,
+    )
+    assert verify_resp.status_code == 200
+    assert verify_resp.json()["status"] == "VERIFIED"
+
+    # Mesma origem (alteração apenas de nome e path) mantém autorização VERIFIED
+    same_origin_resp = client.patch(
+        f"/api/v1/assets/{asset_id}",
+        headers=headers,
+        json={
+            "name": "Alvo Editável v2",
+            "target_url": "http://lab-target.internal:8080/v2",
+        },
+    )
+    assert same_origin_resp.status_code == 200
+    same_origin_data = same_origin_resp.json()
+    assert same_origin_data["name"] == "Alvo Editável v2"
+    assert same_origin_data["target_url"] == "http://lab-target.internal:8080/v2"
+    assert same_origin_data["authorization_status"] == "VERIFIED"
+
+    # Tentar atualizar para IP de metadados de nuvem deve falhar com 422 (Anti-SSRF)
+    ssrf_resp = client.patch(
+        f"/api/v1/assets/{asset_id}",
+        headers=headers,
+        json={"target_url": "http://169.254.169.254/latest/meta-data/"},
+    )
+    assert ssrf_resp.status_code == 422
+    assert "Anti-SSRF" in ssrf_resp.json()["detail"]
+
+    # Alterar origem/domínio redefine autorização para PENDING e revoga autorizações antigas
+    change_host_resp = client.patch(
+        f"/api/v1/assets/{asset_id}",
+        headers=headers,
+        json={"target_url": "http://localhost:8080/"},
+    )
+    assert change_host_resp.status_code == 200
+    changed_data = change_host_resp.json()
+    assert changed_data["hostname"] == "localhost"
+    assert changed_data["target_url"] == "http://localhost:8080/"
+    assert changed_data["authorization_status"] == "PENDING"
+
+    auths_resp = client.get(f"/api/v1/assets/{asset_id}/authorizations", headers=headers)
+    assert auths_resp.status_code == 200
+    auth_by_id = {item["id"]: item for item in auths_resp.json()}
+    assert auth_by_id[first_auth_id]["status"] == "REVOKED"
+
+    logs_resp = client.get("/api/v1/audit-logs", headers=headers)
+    assert logs_resp.status_code == 200
+    updated_logs = [
+        entry for entry in logs_resp.json() if entry["action"] == "ASSET_UPDATED"
+    ]
+    assert any(entry["metadata_json"].get("authorization_reset") is True for entry in updated_logs)
+
+    # Revalida LAB_INTERNAL para o novo host localhost
+    second_init = client.post(
+        f"/api/v1/assets/{asset_id}/authorizations",
+        headers=headers,
+        json={"method": "LAB_INTERNAL", "scope_notes": "Novo alvo localhost"},
+    )
+    assert second_init.status_code == 201
+    second_auth_id = second_init.json()["id"]
+    second_verify = client.post(
+        f"/api/v1/assets/{asset_id}/authorizations/{second_auth_id}/verify",
+        headers=headers,
+    )
+    assert second_verify.status_code == 200
+    assert second_verify.json()["status"] == "VERIFIED"
+
+    # Mudar ambiente para PRODUCTION revoga LAB_INTERNAL e volta status do ativo para PENDING
+    prod_resp = client.patch(
+        f"/api/v1/assets/{asset_id}",
+        headers=headers,
+        json={"environment": "PRODUCTION"},
+    )
+    assert prod_resp.status_code == 200
+    assert prod_resp.json()["environment"] == "PRODUCTION"
+    assert prod_resp.json()["authorization_status"] == "PENDING"
+
+    auths_after_prod = client.get(
+        f"/api/v1/assets/{asset_id}/authorizations", headers=headers
+    )
+    assert auths_after_prod.status_code == 200
+    assert all(item["status"] == "REVOKED" for item in auths_after_prod.json())
+
+    # Bloqueia alteração de domínio/URL quando há scan ativo (RUNNING)
+    running_scan = Scan(
+        organization_id=org_id,
+        asset_id=asset_id,
+        initiated_by_user_id=user_id,
+        profile_type="QUICK",
+        status="RUNNING",
+    )
+    db_session.add(running_scan)
+    db_session.commit()
+
+    conflict_resp = client.patch(
+        f"/api/v1/assets/{asset_id}",
+        headers=headers,
+        json={"target_url": "http://lab-target.internal:8080/"},
+    )
+    assert conflict_resp.status_code == 409

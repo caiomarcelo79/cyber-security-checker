@@ -151,7 +151,7 @@ O desenvolvimento do `cyber-security-checker` é estruturado por fases sequencia
 
 ## Plano de melhorias pós-v1.0
 
-A numeração abaixo é própria deste plano. As fases 1 e 2 foram validadas em laboratório. A Fase 3 começa com um exercício sintético de degradação e recuperação. Consulte [PROGRESS.md](PROGRESS.md) para as evidências e [NEXT_STEPS.md](NEXT_STEPS.md) para a ordem de implementação.
+A numeração abaixo é própria deste plano. As fases 1, 2, 3, 4, 5 e 6 foram concluídas e validadas de ponta a ponta contra PostgreSQL 16, Redis 7, Uvicorn, CLIs e Console SOC. Consulte [PROGRESS.md](PROGRESS.md) para as evidências e [TEST_MATRIX.md](TEST_MATRIX.md) para os casos verificados.
 
 | Fase | Entrega | Critério de aceite |
 | :--- | :--- | :--- |

@@ -13,7 +13,7 @@ from app.schemas.ssh_audits import (
     SshAuditCreate,
     SshAuditResponse,
 )
-from app.services.lab_authorization import require_authorized_lab_asset
+from app.services.lab_authorization import require_authorized_operational_asset
 from app.services.ssh_audit_service import latest_ssh_audit, record_ssh_audit, run_ssh_alert_exercise
 
 router = APIRouter(prefix="/api/v1/assets/{asset_id}/ssh-audit", tags=["Auditoria SSH"])
@@ -35,7 +35,9 @@ def get_latest(asset_id: UUID, db: DbSessionDep, principal: ViewerDep) -> SshAud
 @router.get("/collection", response_model=SshAuditCollection)
 def get_collection(asset_id: UUID, db: DbSessionDep, principal: AnalystDep) -> SshAuditCollection:
     _require_user_session(principal)
-    asset = require_authorized_lab_asset(db, principal.organization.id, str(asset_id))
+    asset, _ = require_authorized_operational_asset(
+        db, principal.organization.id, str(asset_id), capability="SSH_AUDIT"
+    )
     return SshAuditCollection(hostname=asset.hostname)
 
 

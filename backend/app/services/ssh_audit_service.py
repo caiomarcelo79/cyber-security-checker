@@ -19,7 +19,7 @@ from app.schemas.ssh_audits import (
 )
 from app.services.asset_service import AssetAuthorizationService
 from app.services.audit_service import AuditLogService
-from app.services.lab_authorization import require_authorized_lab_asset
+from app.services.lab_authorization import require_authorized_operational_asset
 from app.services.notification_service import NotificationService
 
 PASSWORD_AUTHENTICATION_STATUS: dict[PasswordAuthentication, CheckStatus] = {
@@ -67,8 +67,8 @@ def latest_ssh_audit(db: Session, organization_id: str, asset_id: str) -> SshAud
 def record_ssh_audit(
     db: Session, principal: AuthenticatedPrincipal, asset_id: str, payload: SshAuditCreate
 ) -> SshAuditResponse:
-    asset = require_authorized_lab_asset(
-        db, principal.organization.id, asset_id, lock_authorization=True
+    asset, _ = require_authorized_operational_asset(
+        db, principal.organization.id, asset_id, capability="SSH_AUDIT", lock_authorization=True
     )
     if payload.hostname.lower() != asset.hostname.lower():
         raise HTTPException(422, "O hostname da coleta deve corresponder ao ativo autorizado.")
@@ -96,7 +96,9 @@ def record_ssh_audit(
 def run_ssh_alert_exercise(
     db: Session, principal: AuthenticatedPrincipal, asset_id: str
 ) -> SshAlertExerciseResponse:
-    asset = require_authorized_lab_asset(db, principal.organization.id, asset_id, lock_authorization=True)
+    asset, _ = require_authorized_operational_asset(
+        db, principal.organization.id, asset_id, capability="SSH_AUDIT", lock_authorization=True
+    )
     event_created_at = utcnow()
     metadata = {"asset_id": asset.id, "synthetic": True, "event_created_at": event_created_at.isoformat()}
     AuditLogService.record(

@@ -133,15 +133,18 @@ def logout_user(
     summary="Retorna dados do usuário autenticado, organização ativa e papéis RBAC",
 )
 def get_me(
+    response: Response,
     db: DbSessionDep,
     principal: Annotated[AuthenticatedPrincipal, Depends(get_current_principal)],
 ) -> AuthSessionResponse:
-    return AuthOrganizationService.build_session_response(
+    session_data = AuthOrganizationService.build_session_response(
         db=db,
         user=principal.user,
         active_organization=principal.organization,
         active_role=principal.role,
     )
+    _set_auth_cookie(response, session_data.access_token)
+    return session_data
 
 
 @router.post(

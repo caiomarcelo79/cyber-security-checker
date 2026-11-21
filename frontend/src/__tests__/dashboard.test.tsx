@@ -143,4 +143,49 @@ describe("SOC Console - Cyber-Security-Checker (TM-009 & TM-013)", () => {
       )
     ).toBeInTheDocument();
   });
+
+  it("restaura automaticamente a sessão autenticada ao recarregar a página via /auth/me", async () => {
+    const baseFetch = global.fetch as ReturnType<typeof vi.fn>;
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/auth/me")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              access_token: "jwt_restored_123",
+              token_type: "bearer",
+              expires_in_minutes: 60,
+              user: {
+                id: "usr-1",
+                email: "persisted@secops.local",
+                full_name: "Analista Persistido",
+                is_active: true,
+                created_at: new Date().toISOString(),
+              },
+              active_organization: {
+                id: "org-1",
+                name: "SecOps Persistente",
+                slug: "secops-persistente",
+                is_active: true,
+                created_at: new Date().toISOString(),
+              },
+              active_role: "ADMIN",
+              memberships: [],
+            }),
+        });
+      }
+      return baseFetch(url, init);
+    });
+
+    render(
+      <Providers>
+        <SocConsole />
+      </Providers>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/persisted@secops\.local/)).toBeInTheDocument();
+    });
+    expect(screen.getByText("SecOps Persistente")).toBeInTheDocument();
+  });
 });

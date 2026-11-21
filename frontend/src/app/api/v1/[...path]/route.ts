@@ -41,10 +41,28 @@ async function proxyRequest(
     const responseHeaders = new Headers();
     res.headers.forEach((val, key) => {
       const k = key.toLowerCase();
-      if (!["transfer-encoding", "content-encoding", "connection"].includes(k)) {
+      if (
+        !["transfer-encoding", "content-encoding", "connection", "set-cookie"].includes(
+          k
+        )
+      ) {
         responseHeaders.set(key, val);
       }
     });
+
+    const getSetCookie = (
+      res.headers as Headers & { getSetCookie?: () => string[] }
+    ).getSetCookie;
+    const setCookies =
+      typeof getSetCookie === "function"
+        ? getSetCookie.call(res.headers)
+        : (() => {
+            const single = res.headers.get("set-cookie");
+            return single ? [single] : [];
+          })();
+    for (const cookie of setCookies) {
+      responseHeaders.append("set-cookie", cookie);
+    }
 
     return new NextResponse(res.body, {
       status: res.status,

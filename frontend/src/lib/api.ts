@@ -563,7 +563,16 @@ export interface TelemetrySource {
   id: string;
   name: string;
   network: string;
-  status: "ACTIVE" | "EXPIRED" | "REVOKED";
+  status: "ACTIVE" | "PAUSED" | "EXPIRED" | "REVOKED";
+  paused_at?: string | null;
+  collector_version?: string | null;
+  desired_version?: string | null;
+  poll_interval_seconds?: number;
+  config_version?: number;
+  applied_config_version?: number | null;
+  token_generation?: number;
+  update_status?: "UP_TO_DATE" | "UPDATE_AVAILABLE" | "UNKNOWN";
+  last_heartbeat_at?: string | null;
   expires_at: string;
   last_received_at: string | null;
   latest_observed_at: string | null;
@@ -602,6 +611,59 @@ export async function revokeTelemetrySource(token: string, assetId: string, sour
     credentials: "include",
   });
   if (!res.ok) await parseOrThrow(res, "Falha ao revogar a credencial da fonte.");
+}
+
+export interface TelemetrySourceUpdateRequest {
+  name?: string;
+  network?: string;
+  desired_version?: string;
+  poll_interval_seconds?: number;
+}
+
+export async function pauseTelemetrySource(
+  token: string, assetId: string, sourceId: string
+): Promise<TelemetrySource> {
+  const res = await fetch(`${API_BASE_URL}/assets/${assetId}/telemetry-sources/${sourceId}/pause`, {
+    method: "POST",
+    headers: authHeaders(token),
+    credentials: "include",
+  });
+  return parseOrThrow(res, "Falha ao pausar a fonte de telemetria.");
+}
+
+export async function resumeTelemetrySource(
+  token: string, assetId: string, sourceId: string
+): Promise<TelemetrySource> {
+  const res = await fetch(`${API_BASE_URL}/assets/${assetId}/telemetry-sources/${sourceId}/resume`, {
+    method: "POST",
+    headers: authHeaders(token),
+    credentials: "include",
+  });
+  return parseOrThrow(res, "Falha ao retomar a fonte de telemetria.");
+}
+
+export async function updateTelemetrySource(
+  token: string, assetId: string, sourceId: string, payload: TelemetrySourceUpdateRequest
+): Promise<TelemetrySource> {
+  const res = await fetch(`${API_BASE_URL}/assets/${assetId}/telemetry-sources/${sourceId}`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  return parseOrThrow(res, "Falha ao atualizar a fonte de telemetria.");
+}
+
+export async function recoverTelemetrySource(
+  token: string, assetId: string, sourceId: string, expiresInDays = 30
+): Promise<TelemetrySourceCreated> {
+  const res = await fetch(`${API_BASE_URL}/assets/${assetId}/telemetry-sources/${sourceId}/recover`, {
+    method: "POST",
+    headers: authHeaders(token),
+    credentials: "include",
+    body: JSON.stringify({ expires_in_days: expiresInDays }),
+  });
+  return parseOrThrow(res, "Falha ao recuperar a credencial da fonte.");
 }
 
 export async function createAsset(
@@ -898,6 +960,7 @@ export interface FindingTriageUpdateRequest {
 
 export interface AssetUpdateRequest {
   name?: string;
+  target_url?: string;
   environment?: AssetResponse["environment"];
   owner_name?: string;
   owner_email?: string;
@@ -1921,4 +1984,949 @@ export async function downloadScanPdfFile(
   a.click();
   document.body.removeChild(a);
   window.URL.revokeObjectURL(url);
+}
+
+export interface AvailabilityTimelineEvent {
+  event: "DEGRADATION_START" | "ALERT_OPENED" | "RECOVERY_START" | "RECOVERY_DETECTED";
+  expected_offset_ms: number;
+  observed_offset_ms: number | null;
+  delta_ms: number | null;
+}
+
+export interface AvailabilityMetricsSummary {
+  peak_latency_ms: number | null;
+  error_5xx_count: number;
+  rate_limited_429_count: number;
+  timeout_or_connection_error_count: number;
+}
+
+export interface AvailabilitySignal {
+  id: string;
+  source_type: "FIREWALL" | "CDN" | "PROVIDER";
+  signal: "RATE_LIMITED" | "UPSTREAM_ERROR" | "SATURATION" | "MITIGATION_ACTIVE" | "RECOVERED";
+  offset_ms: number;
+  http_status: number | null;
+  created_at: string;
+}
+
+export interface AvailabilityExercise {
+  id: string;
+  status: "RUNNING" | "FINISHED";
+  scenario?: "LATENCY" | "ERRORS" | "SATURATION";
+  state: "NORMAL" | "ALERT" | "RECOVERED";
+  result: "PASSED" | "FAILED" | "INCONCLUSIVE" | "EXECUTION_ERROR" | null;
+  hostname: string;
+  threshold_ms: number;
+  consecutive_samples: number;
+  interval_ms: number;
+  normal_ms: number;
+  degraded_ms: number;
+  planned_duration_ms: number;
+  tolerance_ms: number;
+  sample_count: number;
+  metrics_summary?: AvailabilityMetricsSummary;
+  timeline: AvailabilityTimelineEvent[];
+  signals?: AvailabilitySignal[];
+  alert_publication_ms: number | null;
+  recovery_publication_ms: number | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+export async function fetchAvailabilityExercises(token: string, assetId: string): Promise<AvailabilityExercise[]> {
+  const res = await fetch(`${API_BASE_URL}/assets/${assetId}/availability-exercises`, {
+    headers: authHeaders(token),
+    credentials: "include",
+    cache: "no-store",
+  });
+  return parseOrThrow(res, "Falha ao carregar os exercícios de disponibilidade.");
+}
+
+export interface TrafficCoverage {
+  observed_layers: string[];
+  missing_layers: string[];
+}
+
+export interface SuspiciousTrafficAlert {
+  id: string;
+  rule_id: string;
+  category: "CONNECTIONS" | "DNS" | "TLS";
+  severity: "HIGH" | "MEDIUM" | "LOW";
+  confidence: "HIGH" | "MEDIUM" | "LOW";
+  title: string;
+  explanation: string;
+  evidence: Record<string, unknown>;
+  observed_layers: string[];
+  missing_layers: string[];
+  created_at: string;
+}
+
+export interface TrafficTlsDecision {
+  id: string;
+  uid: string;
+  server_name: string;
+  responder_ip: string;
+  responder_port: number;
+  outcome: "BASELINE_ESTABLISHED" | "UNCHANGED" | "BENIGN_ROTATION" | "INTERCEPTION_ALERT";
+  observed_cert_sha256: string;
+  previous_cert_sha256: string | null;
+  observed_issuer: string;
+  previous_issuer: string | null;
+  reason: string;
+  observed_at: string;
+}
+
+export interface TrafficEdrSignal {
+  id: string;
+  uid: string;
+  host_ip: string;
+  source_type: "ANTIVIRUS" | "EDR";
+  signal: "SUSPICIOUS_PROCESS" | "UNTRUSTED_ROOT_CA" | "BEACONING_DETECTED" | "MALWARE_QUARANTINED";
+  process_name: string;
+  detail: string | null;
+  observed_at: string;
+}
+
+export interface TrafficAnalysisRun {
+  id: string;
+  asset_id: string;
+  source_id: string;
+  source_name: string;
+  coverage: TrafficCoverage;
+  connection_count: number;
+  dns_count: number;
+  tls_count: number;
+  edr_count: number;
+  alerts_count: number;
+  benign_rotations_count: number;
+  alerts: SuspiciousTrafficAlert[];
+  tls_decisions: TrafficTlsDecision[];
+  edr_signals: TrafficEdrSignal[];
+  created_at: string;
+}
+
+export async function fetchTrafficAnalyses(token: string, assetId: string): Promise<TrafficAnalysisRun[]> {
+  const res = await fetch(`${API_BASE_URL}/assets/${encodeURIComponent(assetId)}/traffic-analyses`, {
+    headers: authHeaders(token),
+    credentials: "include",
+    cache: "no-store",
+  });
+  return parseOrThrow(res, "Falha ao carregar análises de tráfego suspeito.");
+}
+
+export interface EvidenceCitation {
+  field: string;
+  value_excerpt: string;
+}
+
+export interface AiTriageSuggestion {
+  id: string;
+  organization_id: string;
+  asset_id: string;
+  target_type: "TRAFFIC_ALERT" | "FINDING";
+  traffic_alert_id?: string | null;
+  finding_id?: string | null;
+  generation_mode: "AI_PROVIDER" | "DETERMINISTIC_FALLBACK";
+  ai_status: "AVAILABLE" | "UNAVAILABLE" | "UNCONFIGURED" | "INVALID_OUTPUT_FALLBACK";
+  model_name: string;
+  summary: string;
+  explanation: string;
+  recommended_action: "INVESTIGATE" | "CONTAIN" | "REMEDIATE" | "VERIFY_CHANGE";
+  remediation_steps: string[];
+  evidence_citations: EvidenceCitation[];
+  sanitized_evidence_hash: string;
+  review_status: "PENDING_REVIEW" | "APPROVED" | "REJECTED";
+  requires_analyst_review: boolean;
+  reviewer_user_id?: string | null;
+  reviewer_notes?: string | null;
+  reviewed_at?: string | null;
+  created_at: string;
+}
+
+export interface AiTriageReviewRequest {
+  decision: "APPROVED" | "REJECTED";
+  reviewer_notes?: string | null;
+}
+
+export async function createTrafficAlertTriageSuggestion(
+  token: string,
+  assetId: string,
+  runId: string,
+  alertId: string
+): Promise<AiTriageSuggestion> {
+  const res = await fetch(
+    `${API_BASE_URL}/assets/${encodeURIComponent(assetId)}/traffic-analyses/${encodeURIComponent(runId)}/alerts/${encodeURIComponent(alertId)}/triage-suggestion`,
+    {
+      method: "POST",
+      headers: authHeaders(token),
+      credentials: "include",
+    }
+  );
+  return parseOrThrow(res, "Falha ao gerar sugestão de triagem para o alerta.");
+}
+
+export async function fetchTrafficAlertTriageSuggestion(
+  token: string,
+  assetId: string,
+  runId: string,
+  alertId: string
+): Promise<AiTriageSuggestion | null> {
+  return authedGet<AiTriageSuggestion | null>(
+    token,
+    `/assets/${encodeURIComponent(assetId)}/traffic-analyses/${encodeURIComponent(runId)}/alerts/${encodeURIComponent(alertId)}/triage-suggestion`,
+    "Falha ao consultar sugestão de triagem para o alerta."
+  );
+}
+
+export async function createFindingTriageSuggestion(
+  token: string,
+  findingId: string
+): Promise<AiTriageSuggestion> {
+  const res = await fetch(
+    `${API_BASE_URL}/findings/${encodeURIComponent(findingId)}/triage-suggestion`,
+    {
+      method: "POST",
+      headers: authHeaders(token),
+      credentials: "include",
+    }
+  );
+  return parseOrThrow(res, "Falha ao gerar sugestão de triagem para a vulnerabilidade.");
+}
+
+export async function fetchFindingTriageSuggestion(
+  token: string,
+  findingId: string
+): Promise<AiTriageSuggestion | null> {
+  return authedGet<AiTriageSuggestion | null>(
+    token,
+    `/findings/${encodeURIComponent(findingId)}/triage-suggestion`,
+    "Falha ao consultar sugestão de triagem para a vulnerabilidade."
+  );
+}
+
+export async function reviewTriageSuggestion(
+  token: string,
+  suggestionId: string,
+  payload: AiTriageReviewRequest
+): Promise<AiTriageSuggestion> {
+  const res = await fetch(
+    `${API_BASE_URL}/triage-suggestions/${encodeURIComponent(suggestionId)}/review`,
+    {
+      method: "PATCH",
+      headers: authHeaders(token),
+      credentials: "include",
+      body: JSON.stringify(payload),
+    }
+  );
+  return parseOrThrow(res, "Falha ao registrar decisão do analista.");
+}
+
+// ---------------------------------------------------------------------------
+// Fase 6 pós-v1.0: Piloto, prontidão e expansão controlada para clientes
+// ---------------------------------------------------------------------------
+
+export type PilotStage = "OWN_ENVIRONMENT" | "AUTHORIZED_CLIENT";
+export type PilotStatus = "ACTIVE" | "PAUSED" | "EXPIRED" | "REVOKED";
+export type PilotCapability =
+  | "TELEMETRY"
+  | "TRAFFIC_ANALYSIS"
+  | "AVAILABILITY"
+  | "SSH_AUDIT"
+  | "AI_TRIAGE";
+export type PilotReviewDecision = "APPROVED_FOR_EXPANSION" | "NEEDS_ADJUSTMENT";
+
+export interface PilotEnrollment {
+  id: string;
+  organization_id: string;
+  asset_id: string;
+  asset_name: string;
+  asset_environment: string;
+  asset_hostname: string;
+  stage: PilotStage;
+  status: PilotStatus;
+  prerequisite_pilot_id: string | null;
+  allowed_cidrs: string[];
+  enabled_capabilities: PilotCapability[];
+  max_sources: number;
+  scope_notes: string | null;
+  expires_at: string;
+  paused_at: string | null;
+  revoked_at: string | null;
+  created_by_user_id: string | null;
+  created_at: string;
+  updated_at: string | null;
+  latest_review_decision?: PilotReviewDecision | null;
+}
+
+export interface PilotEnrollmentCreateRequest {
+  asset_id: string;
+  stage: PilotStage;
+  prerequisite_pilot_id?: string | null;
+  allowed_cidrs: string[];
+  enabled_capabilities: PilotCapability[];
+  max_sources: number;
+  expires_in_days: number;
+  scope_notes?: string | null;
+}
+
+export interface PilotLifecycleChecklist {
+  installation_demonstrated: boolean;
+  pause_resume_demonstrated: boolean;
+  update_demonstrated: boolean;
+  revocation_demonstrated: boolean;
+  recovery_demonstrated: boolean;
+  all_demonstrated: boolean;
+}
+
+export interface PilotCoverage {
+  total_sources: number;
+  active_sources: number;
+  paused_sources: number;
+  revoked_sources: number;
+  up_to_date_sources: number;
+  traffic_runs_count: number;
+  observed_layers: string[];
+  missing_layers: string[];
+  layer_coverage_percent: number;
+  ssh_audits_count: number;
+  availability_exercises_total: number;
+  availability_exercises_passed: number;
+}
+
+export interface PilotLatency {
+  telemetry_samples_count: number;
+  telemetry_avg_delay_seconds: number | null;
+  telemetry_max_delay_seconds: number | null;
+  availability_alert_pub_avg_ms: number | null;
+  availability_alert_pub_max_ms: number | null;
+  availability_recovery_pub_avg_ms: number | null;
+  availability_recovery_pub_max_ms: number | null;
+}
+
+export interface PilotFalsePositives {
+  suspicious_alerts_total: number;
+  benign_tls_rotations_ignored: number;
+  triage_suggestions_total: number;
+  triage_approved_count: number;
+  triage_rejected_count: number;
+  triage_pending_count: number;
+  findings_total: number;
+  findings_false_positive_count: number;
+  findings_false_positive_rate_percent: number;
+}
+
+export interface PilotReview {
+  id: string;
+  pilot_id: string;
+  organization_id: string;
+  decision: PilotReviewDecision;
+  coverage_ok: boolean;
+  latency_ok: boolean;
+  false_positives_ok: boolean;
+  reviewer_user_id: string | null;
+  notes: string | null;
+  metrics_snapshot: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface PilotReadiness {
+  pilot_id: string;
+  asset_id: string;
+  stage: PilotStage;
+  status: PilotStatus;
+  lifecycle: PilotLifecycleChecklist;
+  coverage: PilotCoverage;
+  latency: PilotLatency;
+  false_positives: PilotFalsePositives;
+  blocking_reasons: string[];
+  ready_for_expansion_approval: boolean;
+  latest_review: PilotReview | null;
+}
+
+export interface PilotReviewCreateRequest {
+  decision: PilotReviewDecision;
+  coverage_ok: boolean;
+  latency_ok: boolean;
+  false_positives_ok: boolean;
+  notes?: string | null;
+}
+
+export function fetchPilots(token: string): Promise<PilotEnrollment[]> {
+  return authedGet(token, "/pilots", "Falha ao carregar habilitações de piloto.");
+}
+
+export async function createPilot(
+  token: string,
+  payload: PilotEnrollmentCreateRequest
+): Promise<PilotEnrollment> {
+  const res = await fetch(`${API_BASE_URL}/pilots`, {
+    method: "POST",
+    headers: authHeaders(token),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  return parseOrThrow(res, "Falha ao habilitar piloto controlado.");
+}
+
+export async function pausePilot(
+  token: string,
+  pilotId: string
+): Promise<PilotEnrollment> {
+  const res = await fetch(`${API_BASE_URL}/pilots/${encodeURIComponent(pilotId)}/pause`, {
+    method: "POST",
+    headers: authHeaders(token),
+    credentials: "include",
+  });
+  return parseOrThrow(res, "Falha ao pausar o piloto.");
+}
+
+export async function resumePilot(
+  token: string,
+  pilotId: string
+): Promise<PilotEnrollment> {
+  const res = await fetch(`${API_BASE_URL}/pilots/${encodeURIComponent(pilotId)}/resume`, {
+    method: "POST",
+    headers: authHeaders(token),
+    credentials: "include",
+  });
+  return parseOrThrow(res, "Falha ao retomar o piloto.");
+}
+
+export async function revokePilot(
+  token: string,
+  pilotId: string
+): Promise<PilotEnrollment> {
+  const res = await fetch(`${API_BASE_URL}/pilots/${encodeURIComponent(pilotId)}/revoke`, {
+    method: "POST",
+    headers: authHeaders(token),
+    credentials: "include",
+  });
+  return parseOrThrow(res, "Falha ao revogar o piloto.");
+}
+
+export function fetchPilotReadiness(
+  token: string,
+  pilotId: string
+): Promise<PilotReadiness> {
+  return authedGet(
+    token,
+    `/pilots/${encodeURIComponent(pilotId)}/readiness`,
+    "Falha ao consultar prontidão do piloto."
+  );
+}
+
+export async function recordPilotReview(
+  token: string,
+  pilotId: string,
+  payload: PilotReviewCreateRequest
+): Promise<PilotReview> {
+  const res = await fetch(`${API_BASE_URL}/pilots/${encodeURIComponent(pilotId)}/reviews`, {
+    method: "POST",
+    headers: authHeaders(token),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  return parseOrThrow(res, "Falha ao registrar revisão do piloto.");
+}
+
+export function fetchPilotReviews(
+  token: string,
+  pilotId: string
+): Promise<PilotReview[]> {
+  return authedGet(
+    token,
+    `/pilots/${encodeURIComponent(pilotId)}/reviews`,
+    "Falha ao consultar histórico de revisões do piloto."
+  );
+}
+
+// --- Ferramentas Defensivas SOC (Pentest Assistant, Password, Forensics, Firewall, Malware, WiFi, DDoS) ---
+
+export interface PentestPlanRequest {
+  asset_id?: string | null;
+  asset_type?: "WEB_APP" | "REST_API" | "GRAPHQL_API" | "DOMAIN";
+  environment?: "PRODUCTION" | "STAGING" | "DEVELOPMENT" | "LAB";
+  target_label?: string | null;
+}
+
+export interface PentestStepItem {
+  step_id: string;
+  wstg_ref: string;
+  title: string;
+  objective: string;
+  safe_technique: string;
+  mapped_checks: string[];
+  allowed_in_production: boolean;
+  automated_status:
+    | "COVERED_PASSED"
+    | "COVERED_WITH_FINDINGS"
+    | "NOT_YET_RUN"
+    | "BLOCKED_IN_PRODUCTION";
+  related_findings_count: number;
+}
+
+export interface PentestPhase {
+  phase_number: number;
+  name: string;
+  description: string;
+  steps: PentestStepItem[];
+}
+
+export interface PentestPlanResponse {
+  target_name: string;
+  asset_type: string;
+  environment: string;
+  authorization_status: string;
+  authorization_warning?: string | null;
+  total_steps: number;
+  automated_covered_steps: number;
+  open_findings_count: number;
+  phases: PentestPhase[];
+}
+
+export interface PasswordGenerateRequest {
+  mode: "RANDOM" | "PASSPHRASE";
+  length?: number;
+  include_uppercase?: boolean;
+  include_lowercase?: boolean;
+  include_digits?: boolean;
+  include_symbols?: boolean;
+  exclude_ambiguous?: boolean;
+  word_count?: number;
+  separator?: string;
+  include_number?: boolean;
+}
+
+export interface PasswordGenerateResponse {
+  generated: string;
+  mode: string;
+  length: number;
+  entropy_bits: number;
+  strength_label: string;
+}
+
+export interface PasswordComplianceCheck {
+  standard: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface PasswordAnalyzeResponse {
+  length: number;
+  score: number;
+  classification: "CRITICAL_WEAK" | "WEAK" | "FAIR" | "STRONG" | "VERY_STRONG";
+  pool_size: number;
+  keyspace_entropy_bits: number;
+  shannon_entropy_bits: number;
+  crack_time_offline_slow: string;
+  crack_time_offline_fast: string;
+  detected_patterns: string[];
+  compliance_checks: PasswordComplianceCheck[];
+  recommendations: string[];
+}
+
+export interface ForensicsHashes {
+  md5: string;
+  sha1: string;
+  sha256: string;
+  sha512: string;
+}
+
+export interface ForensicsAnalyzeResponse {
+  artifact_name: string;
+  size_bytes: number;
+  line_count: number;
+  shannon_entropy: number;
+  hashes: ForensicsHashes;
+  iocs: {
+    ipv4_public: string[];
+    ipv4_private: string[];
+    ipv6: string[];
+    domains: string[];
+    urls: string[];
+    emails: string[];
+    hashes: string[];
+    cves: string[];
+  };
+  timeline: {
+    events_detected: number;
+    first_timestamp?: string | null;
+    last_timestamp?: string | null;
+    http_status_counts: Record<string, number>;
+  };
+  jwt_inspection: {
+    detected: boolean;
+    header?: Record<string, unknown> | null;
+    payload_sanitized?: Record<string, unknown> | null;
+    warnings: string[];
+  };
+  secret_leak_warnings: string[];
+  summary: string;
+}
+
+export interface FirewallTestPacket {
+  protocol: "TCP" | "UDP" | "ICMP";
+  source_ip: string;
+  destination_port: number;
+}
+
+export interface FirewallAnalyzeResponse {
+  total_rules_parsed: number;
+  unparsed_lines: number[];
+  posture_score: number;
+  has_default_deny: boolean;
+  parsed_rules: Array<{
+    line_number: number;
+    raw: string;
+    action: "ALLOW" | "DENY";
+    protocol: string;
+    source_cidr: string;
+    port_spec: string;
+  }>;
+  findings: Array<{
+    severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+    line_number?: number | null;
+    title: string;
+    description: string;
+    cwe_id: string;
+    remediation: string;
+  }>;
+  simulation?: {
+    verdict: "ALLOW" | "DENY" | "DEFAULT_IMPLICIT";
+    matched_line?: number | null;
+    matched_rule?: string | null;
+    explanation: string;
+  } | null;
+}
+
+export interface MalwareAnalyzeResponse {
+  filename: string;
+  size_bytes: number;
+  file_type_guess: string;
+  hashes: ForensicsHashes;
+  shannon_entropy: number;
+  high_entropy_warning: boolean;
+  risk_score: number;
+  verdict: "CLEAN_NO_INDICATORS" | "SUSPICIOUS" | "HIGH_RISK_MALICIOUS_INDICATORS";
+  signature_hits: Array<{
+    rule_id: string;
+    name: string;
+    severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+    mitre_attack: string;
+    matched_excerpt: string;
+    description: string;
+  }>;
+  deobfuscated_previews: Array<{
+    encoding: string;
+    decoded_preview: string;
+  }>;
+  extracted_urls: string[];
+  extracted_ips: string[];
+  containment_recommendations: string[];
+}
+
+export interface WifiConnectedInterface {
+  interface_name?: string | null;
+  adapter_description?: string | null;
+  state?: string | null;
+  ssid?: string | null;
+  bssid?: string | null;
+  radio_type?: string | null;
+  authentication?: string | null;
+  encryption?: string | null;
+  channel?: number | null;
+  signal_percent?: number | null;
+  receive_rate_mbps?: string | null;
+  transmit_rate_mbps?: string | null;
+}
+
+export interface WifiNetworkInput {
+  ssid: string;
+  bssid?: string | null;
+  authentication: string;
+  encryption?: string;
+  radio_type?: string | null;
+  channel?: number | null;
+  signal_percent?: number | null;
+  wps_enabled?: boolean;
+  pmf_enabled?: boolean | null;
+}
+
+export interface WifiAnalyzeResponse {
+  total_networks: number;
+  overall_score: number;
+  evil_twin_suspected: boolean;
+  connected_interface?: WifiConnectedInterface | null;
+  assessments: Array<{
+    ssid: string;
+    bssid?: string | null;
+    security_grade: "A" | "B" | "C" | "D" | "F";
+    authentication: string;
+    encryption: string;
+    radio_type?: string | null;
+    band?: string | null;
+    channel?: number | null;
+    signal_percent?: number | null;
+    issues_count: number;
+  }>;
+  findings: Array<{
+    severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+    ssid: string;
+    bssid?: string | null;
+    title: string;
+    description: string;
+    cwe_id: string;
+    remediation: string;
+  }>;
+  hardening_checklist: string[];
+}
+
+export interface WifiLocalScanResponse {
+  available: boolean;
+  source: string;
+  detail: string;
+  captured_at?: string | null;
+  raw_scan_output?: string | null;
+  connected_interface_output?: string | null;
+  audit?: WifiAnalyzeResponse | null;
+}
+
+export interface HostWifiBridgeScanResponse {
+  available: boolean;
+  host_os?: string;
+  tool?: string;
+  captured_at?: string | null;
+  raw_scan_output?: string | null;
+  connected_interface_output?: string | null;
+  error?: string;
+}
+
+export interface DdosPostureConfig {
+  has_cdn_waf: boolean;
+  has_rate_limiting: boolean;
+  has_syn_cookies: boolean;
+  has_upstream_timeouts: boolean;
+  has_autoscaling_or_anycast: boolean;
+}
+
+export interface DdosAnalyzeResponse {
+  total_requests_parsed: number;
+  unique_ips: number;
+  peak_rps: number;
+  error_5xx_429_rate_percent: number;
+  resilience_score: number;
+  risk_level: "LOW" | "MODERATE" | "HIGH" | "CRITICAL";
+  top_ips: Array<{
+    ip: string;
+    request_count: number;
+    share_percent: number;
+    error_rate_percent: number;
+  }>;
+  top_paths: Array<{
+    path: string;
+    count: number;
+    unique_query_variants: number;
+  }>;
+  anomalies: Array<{
+    severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+    anomaly_type: string;
+    title: string;
+    description: string;
+    evidence: string;
+  }>;
+  asset_module_f_context: string[];
+  mitigation_snippets: Array<{
+    platform: string;
+    title: string;
+    code: string;
+  }>;
+}
+
+async function postSecurityTool<TReq, TRes>(
+  path: string,
+  payload: TReq,
+  fallbackMsg: string,
+  token?: string | null
+): Promise<TRes> {
+  const res = await fetch(`${API_BASE_URL}/security-tools${path}`, {
+    method: "POST",
+    headers: authHeaders(token),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  return parseOrThrow(res, fallbackMsg);
+}
+
+export function fetchPentestPlan(
+  payload: PentestPlanRequest,
+  token?: string | null
+): Promise<PentestPlanResponse> {
+  return postSecurityTool(
+    "/pentest-assistant/plan",
+    payload,
+    "Falha ao gerar plano de pentest guiado.",
+    token
+  );
+}
+
+export function generatePasswordTool(
+  payload: PasswordGenerateRequest,
+  token?: string | null
+): Promise<PasswordGenerateResponse> {
+  return postSecurityTool(
+    "/password/generate",
+    payload,
+    "Falha ao gerar senha segura.",
+    token
+  );
+}
+
+export function analyzePasswordTool(
+  password: string,
+  token?: string | null
+): Promise<PasswordAnalyzeResponse> {
+  return postSecurityTool(
+    "/password/analyze",
+    { password },
+    "Falha ao analisar força da senha.",
+    token
+  );
+}
+
+export function analyzeForensicsTool(
+  payload: { content: string; artifact_name?: string | null; defang_iocs?: boolean },
+  token?: string | null
+): Promise<ForensicsAnalyzeResponse> {
+  return postSecurityTool(
+    "/forensics/analyze",
+    payload,
+    "Falha ao executar análise forense do artefato.",
+    token
+  );
+}
+
+export function analyzeFirewallTool(
+  payload: { rules_text: string; test_packet?: FirewallTestPacket | null },
+  token?: string | null
+): Promise<FirewallAnalyzeResponse> {
+  return postSecurityTool(
+    "/firewall/test",
+    payload,
+    "Falha ao auditar regras de firewall.",
+    token
+  );
+}
+
+export function analyzeMalwareTool(
+  payload: { payload: string; filename?: string | null; input_encoding?: "TEXT" | "BASE64" | "HEX" },
+  token?: string | null
+): Promise<MalwareAnalyzeResponse> {
+  return postSecurityTool(
+    "/malware/analyze",
+    payload,
+    "Falha na inspeção estática do payload.",
+    token
+  );
+}
+
+export function analyzeWifiTool(
+  payload: {
+    raw_scan_output?: string | null;
+    connected_interface_output?: string | null;
+    networks?: WifiNetworkInput[];
+  },
+  token?: string | null
+): Promise<WifiAnalyzeResponse> {
+  return postSecurityTool(
+    "/wifi/audit",
+    payload,
+    "Falha na auditoria passiva de redes Wi-Fi.",
+    token
+  );
+}
+
+export function scanLocalWifiTool(
+  token?: string | null
+): Promise<WifiLocalScanResponse> {
+  return postSecurityTool(
+    "/wifi/scan-local",
+    {},
+    "Falha ao consultar placa Wi-Fi local.",
+    token
+  );
+}
+
+export async function fetchHostWifiBridgeScan(
+  sensorUrl = "http://127.0.0.1:8765/scan"
+): Promise<HostWifiBridgeScanResponse> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(sensorUrl, {
+      method: "GET",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    const data = (await res.json()) as HostWifiBridgeScanResponse;
+    if (!res.ok) {
+      return {
+        available: false,
+        error: data?.error || `Sensor local respondeu HTTP ${res.status}.`,
+      };
+    }
+    return data;
+  } catch (err) {
+    return {
+      available: false,
+      error:
+        err instanceof Error
+          ? err.message
+          : "Sensor local 127.0.0.1:8765 indisponível.",
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+export function analyzeDdosTool(
+  payload: { access_logs?: string | null; posture: DdosPostureConfig; asset_id?: string | null },
+  token?: string | null
+): Promise<DdosAnalyzeResponse> {
+  return postSecurityTool(
+    "/ddos/analyze",
+    payload,
+    "Falha ao analisar telemetria e postura anti-DDoS.",
+    token
+  );
+}
+
+
+export async function fetchCurrentSession(): Promise<AuthSessionResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth/me`, {
+      method: "GET",
+      headers: authHeaders(),
+      credentials: "include",
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      return null;
+    }
+    const data: unknown = await res.json();
+    if (
+      data &&
+      typeof data === "object" &&
+      "access_token" in data &&
+      typeof (data as AuthSessionResponse).access_token === "string" &&
+      "user" in data &&
+      Boolean((data as AuthSessionResponse).user) &&
+      "active_organization" in data &&
+      Boolean((data as AuthSessionResponse).active_organization)
+    ) {
+      return data as AuthSessionResponse;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }

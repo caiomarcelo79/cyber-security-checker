@@ -14,7 +14,7 @@ from urllib.error import HTTPError, URLError
 from uuid import UUID
 
 from _local_api import api_base_url
-from import_zeek import CollectorApi
+from import_zeek import COLLECTOR_VERSION, CollectorApi
 from zeek_file_collector import ZeekFileCollector, state_path
 
 POLL_SECONDS = 2
@@ -38,6 +38,8 @@ def collect(
     updates: Queue[CollectorUpdate],
 ) -> None:
     next_status = 0.0
+    poll_seconds = POLL_SECONDS
+    applied_config_version: int | None = None
     try:
         with ZeekFileCollector(log, checkpoint) as collector:
             while not stopped.is_set():
@@ -48,7 +50,32 @@ def collect(
                     continue
                 try:
                     if monotonic() >= next_status:
-                        updates.put(CollectorUpdate("Fonte conectada.", api.status()))
+                        source = api.status()
+                        interval = source.get("poll_interval_seconds")
+                        if type(interval) is int and 1 <= interval <= 300:
+                            poll_seconds = interval
+                        config_version = source.get("config_version")
+                        config_updated = False
+                        if type(config_version) is int and config_version != applied_config_version:
+                            applied_config_version = config_version
+                            if hasattr(api, "heartbeat"):
+                                source = api.heartbeat(COLLECTOR_VERSION, config_version)
+                            updates.put(
+                                CollectorUpdate(
+                                    f"Configuração v{config_version} aplicada (coletor {COLLECTOR_VERSION}).",
+                                    source,
+                                )
+                            )
+                            config_updated = True
+                        if source.get("status") == "PAUSED":
+                            updates.put(
+                                CollectorUpdate("Coleta pausada pelo Console. Aguardando retomada.", source)
+                            )
+                            next_status = monotonic() + poll_seconds
+                            stopped.wait(poll_seconds)
+                            continue
+                        if not config_updated:
+                            updates.put(CollectorUpdate("Fonte conectada.", source))
                         next_status = monotonic() + STATUS_SECONDS
                     inserted, duplicates = collector.sync_once(api.submit)
                     if inserted or duplicates:
@@ -61,6 +88,13 @@ def collect(
                         next_status = monotonic() + STATUS_SECONDS
                         continue
                 except HTTPError as exc:
+                    if exc.code == 409:
+                        updates.put(
+                            CollectorUpdate("Coleta pausada pelo servidor. Nova verificação em 5 segundos.")
+                        )
+                        next_status = 0
+                        stopped.wait(RETRY_SECONDS)
+                        continue
                     if exc.code in {408, 429} or exc.code >= 500:
                         updates.put(CollectorUpdate("API temporariamente indisponível. Nova tentativa em 5 segundos."))
                         next_status = 0
@@ -68,7 +102,7 @@ def collect(
                         continue
                     messages = {
                         401: "Credencial da instalação inválida, expirada ou revogada.",
-                        403: "Autorização do ativo ou do laboratório indisponível.",
+                        403: "Autorização do ativo, piloto ou laboratório indisponível.",
                         422: "A API recusou o lote. Confira se o arquivo corresponde ao segmento autorizado.",
                     }
                     updates.put(CollectorUpdate(messages.get(exc.code, f"A API recusou a operação (HTTP {exc.code}).")))
@@ -86,7 +120,7 @@ def collect(
                 except (TypeError, ValueError) as exc:
                     updates.put(CollectorUpdate(str(exc)))
                     break
-                stopped.wait(POLL_SECONDS)
+                stopped.wait(poll_seconds)
     finally:
         updates.put(CollectorUpdate("Coleta encerrada." if stopped.is_set() else "", finished=True))
 
@@ -239,7 +273,12 @@ class CollectorWindow:
                     self.message.set(update.message)
                 if update.source:
                     source = update.source
-                    self.source_summary.set(f"{source.get('name', 'Zeek')} · {source['network']}")
+                    version_info = ""
+                    if type(source.get("config_version")) is int:
+                        version_info = f" · v{source['config_version']}"
+                    if isinstance(source.get("collector_version"), str):
+                        version_info += f" ({source['collector_version']})"
+                    self.source_summary.set(f"{source.get('name', 'Zeek')} · {source['network']}{version_info}")
                     last_send, delay = display_times(source)
                     self.last_send.set(last_send)
                     self.delay.set(delay)

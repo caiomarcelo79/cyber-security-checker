@@ -71,3 +71,69 @@ it("cadastra a fonte, mostra a credencial retornada uma vez e revoga a instalaç
     expect.objectContaining({ method: "POST", body: JSON.stringify({ name: source.name, network: source.network }) })
   );
 });
+
+it("executa pausa, retomada, atualização e recuperação de credencial no painel", async () => {
+  let current: TelemetrySource = {
+    ...source,
+    config_version: 1,
+    poll_interval_seconds: 2,
+    update_status: "UNKNOWN",
+    token_generation: 1,
+  };
+  const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+    const method = options?.method ?? "GET";
+    if (method === "POST" && url.endsWith(`${sourceRoute}/${source.id}/pause`)) {
+      current = { ...current, status: "PAUSED" };
+      return Response.json(current);
+    }
+    if (method === "POST" && url.endsWith(`${sourceRoute}/${source.id}/resume`)) {
+      current = { ...current, status: "ACTIVE" };
+      return Response.json(current);
+    }
+    if (method === "PATCH" && url.endsWith(`${sourceRoute}/${source.id}`)) {
+      current = {
+        ...current,
+        config_version: 2,
+        desired_version: "1.1.0",
+        poll_interval_seconds: 5,
+        update_status: "UPDATE_AVAILABLE",
+      };
+      return Response.json(current);
+    }
+    if (method === "DELETE" && url.endsWith(`${sourceRoute}/${source.id}`)) {
+      current = { ...current, status: "REVOKED" };
+      return new Response(null, { status: 204 });
+    }
+    if (method === "POST" && url.endsWith(`${sourceRoute}/${source.id}/recover`)) {
+      current = {
+        ...current,
+        status: "ACTIVE",
+        token_generation: 2,
+        config_version: 3,
+      };
+      return Response.json({ ...current, collector_token: "recovered-token" });
+    }
+    return Response.json([current]);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  renderPanel(true);
+
+  expect(await screen.findByRole("button", { name: `Pausar ${source.name}` })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: `Pausar ${source.name}` }));
+  expect(await screen.findByText(/Credencial pausada/)).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: `Retomar ${source.name}` }));
+  expect(await screen.findByRole("button", { name: `Pausar ${source.name}` })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: `Atualizar ${source.name}` }));
+  fireEvent.click(screen.getByRole("button", { name: "Salvar atualização" }));
+  expect(await screen.findByText("Config v2")).toBeInTheDocument();
+  expect(screen.getByText("Atualização pendente")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: `Revogar credencial de ${source.name}` }));
+  const recoverBtn = await screen.findByRole("button", {
+    name: `Recuperar credencial de ${source.name}`,
+  });
+  fireEvent.click(recoverBtn);
+  expect(await screen.findByLabelText("Credencial da fonte")).toHaveValue("recovered-token");
+});

@@ -90,6 +90,10 @@ flowchart TD
 | **Worker & Scheduler** | `workers/` | Workers Celery dedicados à execução assíncrona isolada das auditorias e Celery Beat para agendamentos recorrentes. |
 | **Audit Log** | `backend/app/services/audit_log.py` | Trilha imutável de auditoria registrando logins, cadastros de ativos, validações de escopo, início/cancelamento de scans e exportações. |
 | **Telemetria de rede** | `backend/app/services/network_telemetry.py` e `scripts/desktop_collector.py` | Recebe metadados de conexões do Zeek por instalação autorizada, deduplica no PostgreSQL e expõe estado ao Console e ao desktop. O leitor local grava a posição depois da confirmação da API. |
+| **Disponibilidade** | `backend/app/services/availability_service.py` e `scripts/availability_exercise.py` | Orquestra exercícios sintéticos de degradação e recuperação em ativos `LAB` autorizados, avalia o limiar por amostras consecutivas, publica notificações in-app de abertura e recuperação e compara a linha do tempo esperada com a observada no Console. |
+| **Tráfego suspeito** | `backend/app/services/suspicious_traffic_service.py` e `scripts/analyze_traffic.py` | Analisa metadados JSONL de conexões, DNS, handshakes TLS e sinais opcionais de AV/EDR vinculados a fontes `TelemetrySource` autorizadas, aplica regras determinísticas com cobertura em 4 camadas, sanitiza evidências, distingue rotação legítima de certificado de possível interceptação TLS e expõe resultados no painel `suspicious-traffic-panel.tsx`. |
+| **Triagem assistida por IA** | `backend/app/services/ai_triage_service.py` e `frontend/src/components/ai-triage-card.tsx` | Sintetiza resumos citando evidências sanitizadas, explicações e passos de correção revisáveis (`PENDING_REVIEW`) para alertas de tráfego e vulnerabilidades, com provedor opcional validado, fallback determinístico resiliente e aprovação/rejeição pelo analista no Console SOC. |
+| **Piloto e expansão** | `backend/app/services/pilot_service.py`, `scripts/pilot_lifecycle.py` e `frontend/src/components/pilot-rollout-panel.tsx` | Controla ciclo operacional das fontes (instalação, pausa, atualização/heartbeat, revogação e recuperação), consolida prontidão (marcos operacionais, cobertura, latência e falsos positivos) em ambiente próprio e libera clientes autorizados com escopo estrito de CIDRs, capacidades e comprovação `DNS_TXT`/`HTTP_WELL_KNOWN`. |
 
 ---
 
@@ -119,6 +123,12 @@ As tabelas principais do banco de dados são gerenciadas via SQLAlchemy 2.0 e mi
     - `id` (UUID, PK), `organization_id` (FK), `asset_id` (FK), `profile_type`, `cron_expression`, `is_active`, `last_run_at`, `next_run_at`, `created_by_user_id` (FK), `created_at`.
 11. **`audit_logs`** (Trilha de auditoria interna):
     - `id` (UUID, PK), `organization_id` (FK, nullable), `user_id` (FK, nullable), `action`, `resource_type`, `resource_id`, `ip_address`, `metadata_json` (JSONB), `created_at`.
+12. **`telemetry_tls_baselines` / `traffic_analysis_runs` / `suspicious_traffic_alerts` / `traffic_tls_decisions` / `traffic_edr_signals`** (Fase 4):
+    - Mantêm a linha de base de certificados confiáveis por `(source_id, server_name, responder_ip, responder_port)`, execuções de análise com cobertura por camada (`CONNECTIONS`, `DNS`, `TLS`, `EDR`), alertas explicáveis sanitizados, decisões auditáveis por handshake TLS e sinais opcionais de AV/EDR correlacionados.
+13. **`ai_triage_suggestions`** (Fase 5):
+    - Armazena sugestões revisáveis ligadas a `suspicious_traffic_alerts` ou `findings`, registrando modo de geração (`AI_PROVIDER` ou `DETERMINISTIC_FALLBACK`), disponibilidade da IA, citações verificadas na evidência sanitizada, hash da evidência e decisão de revisão humana (`PENDING_REVIEW`, `APPROVED`, `REJECTED`).
+14. **`pilot_enrollments` / `pilot_reviews`** (Fase 6):
+    - Gerenciam habilitações em ambiente próprio (`OWN_ENVIRONMENT`) e clientes autorizados (`AUTHORIZED_CLIENT`) com escopo de CIDRs, capacidades e `max_sources`, além do histórico auditável de revisões formais com instantâneo real de métricas (`metrics_snapshot`) e estado estendido em `telemetry_sources` para pausa, versão/configuração e geração de credencial.
 
 ---
 

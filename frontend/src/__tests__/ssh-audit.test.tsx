@@ -10,7 +10,7 @@ const timestamp = "2026-11-20T12:00:00Z";
 const asset: AssetResponse = {
   id: "lab-asset",
   organization_id: "lab",
-  name: "OpenSSH de laboratório",
+  name: "OpenSSH de laboratÃ³rio",
   target_url: "http://lab-target",
   hostname: "lab-target",
   asset_type: "DOMAIN",
@@ -29,10 +29,10 @@ afterEach(() => vi.unstubAllGlobals());
 
 it.each([
   ["PASSED", "disabled", "Conforme", "desabilitada", "no", "bloqueado"],
-  ["VULNERABILITY", "enabled", "Divergência de política", "habilitada", "prohibit-password", "permitido sem senha"],
-  ["INCONCLUSIVE", "unknown", "Evidência insuficiente", "indeterminada", "unknown", "indeterminado"],
-  ["EXECUTION_ERROR", "collection_error", "Erro de coleta", "indisponível", "collection_error", "indisponível"],
-] as const)("mostra a evidência de SSH para %s", async (status, observation, label, evidence, root, rootLabel) => {
+  ["VULNERABILITY", "enabled", "DivergÃªncia de polÃ­tica", "habilitada", "prohibit-password", "permitido sem senha"],
+  ["INCONCLUSIVE", "unknown", "EvidÃªncia insuficiente", "indeterminada", "unknown", "indeterminado"],
+  ["EXECUTION_ERROR", "collection_error", "Erro de coleta", "indisponÃ­vel", "collection_error", "indisponÃ­vel"],
+] as const)("mostra a evidÃªncia de SSH para %s", async (status, observation, label, evidence, root, rootLabel) => {
   const sshAudit: SshAuditResponse = {
     id: "lab-audit",
     created_at: timestamp,
@@ -45,7 +45,7 @@ it.each([
     new Response(
       JSON.stringify(
         url.endsWith("/ssh-audit") ? sshAudit
-          : url.endsWith("/telemetry-sources") ? [] : { total: 0, items: [] }
+          : url.endsWith("/telemetry-sources") || url.endsWith("/availability-exercises") || url.endsWith("/traffic-analyses") ? [] : { total: 0, items: [] }
       )
     )
   );
@@ -55,7 +55,7 @@ it.each([
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <AssetsDirectory
         token="test-session"
-        orgName="Laboratório"
+        orgName="LaboratÃ³rio"
         assets={[asset]}
         selectedAssetId={null}
         onManageAuthorization={vi.fn()}
@@ -68,9 +68,9 @@ it.each([
 
   fireEvent.click(screen.getByRole("button", { name: "Ver detalhes" }));
   expect(
-    await screen.findByText(new RegExp(`${label} · Diretiva global PasswordAuthentication ${evidence}`))
+    await screen.findByText(new RegExp(`${label} Â· Diretiva global PasswordAuthentication ${evidence}`))
   ).toBeInTheDocument();
-  expect(screen.getByText(`${label} · Diretiva global de acesso de root ${rootLabel}`)).toBeInTheDocument();
+  expect(screen.getByText(`${label} Â· Diretiva global de acesso de root ${rootLabel}`)).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledWith(
     expect.stringContaining("/assets/lab-asset/ssh-audit"),
     expect.objectContaining({ credentials: "include" })

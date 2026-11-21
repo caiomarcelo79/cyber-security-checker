@@ -1,4 +1,4 @@
-"""Gerencia fontes de laboratório e recebe lotes autenticados do coletor."""
+"""Gerencia fontes, ciclo operacional e lotes autenticados do coletor."""
 
 import re
 from typing import Annotated
@@ -10,20 +10,28 @@ from pydantic import ValidationError
 from app.api.deps import AuthenticatedPrincipal, DbSessionDep, require_minimum_role
 from app.core.security import UserRole
 from app.schemas.network_telemetry import (
+    CollectorHeartbeatRequest,
     ConnectionBatch,
     ConnectionImportResult,
     ConnectionObservation,
     TelemetrySourceCreate,
     TelemetrySourceCreated,
+    TelemetrySourceRecover,
     TelemetrySourceResponse,
+    TelemetrySourceUpdate,
 )
 from app.services.network_telemetry import (
     COLLECTOR_TOKEN_PREFIX,
     get_collector_status,
     import_connections,
     list_sources,
+    pause_source,
+    record_collector_heartbeat,
+    recover_source,
     register_source,
+    resume_source,
     revoke_source,
+    update_source,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["Telemetria de rede"])
@@ -53,6 +61,52 @@ def create_source(
     return register_source(db, principal, str(asset_id), payload)
 
 
+@router.post(f"{ASSET_SOURCES}/{{source_id}}/pause", response_model=TelemetrySourceResponse)
+def pause_telemetry_source(
+    asset_id: UUID, source_id: UUID, db: DbSessionDep, principal: AnalystDep
+) -> TelemetrySourceResponse:
+    _require_user_session(principal)
+    return pause_source(db, principal, str(asset_id), str(source_id))
+
+
+@router.post(f"{ASSET_SOURCES}/{{source_id}}/resume", response_model=TelemetrySourceResponse)
+def resume_telemetry_source(
+    asset_id: UUID, source_id: UUID, db: DbSessionDep, principal: AnalystDep
+) -> TelemetrySourceResponse:
+    _require_user_session(principal)
+    return resume_source(db, principal, str(asset_id), str(source_id))
+
+
+@router.patch(f"{ASSET_SOURCES}/{{source_id}}", response_model=TelemetrySourceResponse)
+def patch_telemetry_source(
+    asset_id: UUID,
+    source_id: UUID,
+    payload: TelemetrySourceUpdate,
+    db: DbSessionDep,
+    principal: AnalystDep,
+) -> TelemetrySourceResponse:
+    _require_user_session(principal)
+    return update_source(db, principal, str(asset_id), str(source_id), payload)
+
+
+@router.post(f"{ASSET_SOURCES}/{{source_id}}/recover", response_model=TelemetrySourceCreated)
+def recover_telemetry_source(
+    asset_id: UUID,
+    source_id: UUID,
+    db: DbSessionDep,
+    principal: AnalystDep,
+    payload: TelemetrySourceRecover | None = None,
+) -> TelemetrySourceCreated:
+    _require_user_session(principal)
+    return recover_source(
+        db,
+        principal,
+        str(asset_id),
+        str(source_id),
+        payload or TelemetrySourceRecover(),
+    )
+
+
 @router.delete(f"{ASSET_SOURCES}/{{source_id}}", status_code=204)
 def deactivate_source(asset_id: UUID, source_id: UUID, db: DbSessionDep, principal: AnalystDep) -> Response:
     _require_user_session(principal)
@@ -73,6 +127,16 @@ CollectorTokenDep = Annotated[str, Depends(read_collector_token)]
 @router.get("/telemetry/sources/{source_id}")
 def collector_status(source_id: UUID, token: CollectorTokenDep, db: DbSessionDep) -> TelemetrySourceResponse:
     return get_collector_status(db, str(source_id), token)
+
+
+@router.post("/telemetry/sources/{source_id}/heartbeat", response_model=TelemetrySourceResponse)
+def collector_heartbeat(
+    source_id: UUID,
+    payload: CollectorHeartbeatRequest,
+    token: CollectorTokenDep,
+    db: DbSessionDep,
+) -> TelemetrySourceResponse:
+    return record_collector_heartbeat(db, str(source_id), token, payload)
 
 
 async def read_collector_batch(request: Request, token: CollectorTokenDep) -> tuple[str, ConnectionBatch]:

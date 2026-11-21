@@ -33,6 +33,7 @@ import {
   Sun,
   Terminal,
   Users,
+  Wrench,
   Zap,
 } from "lucide-react";
 import {
@@ -55,7 +56,9 @@ import {
   fetchAssetAuthorizations,
   fetchAssets,
   fetchAuditLogs,
+  fetchCurrentSession,
   fetchOrganizationMembers,
+  fetchPilots,
   fetchRemediationCatalog,
   fetchScanDetailedResults,
   fetchScanProfiles,
@@ -78,10 +81,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AssetsDirectory } from "@/components/assets-directory";
 import { AutomationsPanel } from "@/components/automations-panel";
+import { PilotRolloutPanel } from "@/components/pilot-rollout-panel";
 import { DashboardPanel } from "@/components/dashboard-panel";
 import { ReportsPanel } from "@/components/reports-panel";
 import { ScanComparisonModal } from "@/components/scan-comparison-modal";
 import { ScanEventsCard, ScansHistoryPanel } from "@/components/scans-history-panel";
+import { SecurityToolsPanel } from "@/components/security-tools-panel";
 import { VulnerabilitiesPanel } from "@/components/vulnerabilities-panel";
 import { useScanLiveProgress } from "@/lib/use-scan-live-progress";
 
@@ -141,6 +146,8 @@ type ActiveTab =
   | "vulnerabilities"
   | "reports"
   | "automations"
+  | "pilot"
+  | "security_tools"
   | "org_audit"
   | "auth"
   | "modules"
@@ -193,6 +200,18 @@ export function SocConsole() {
     setMounted(true);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    void fetchCurrentSession().then((session) => {
+      if (!cancelled && session) {
+        setAuthSession((current) => current ?? session);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const { theme, setTheme } = useTheme();
   const queryClient = useQueryClient();
   const token = authSession?.access_token ?? null;
@@ -228,6 +247,18 @@ export function SocConsole() {
     queryFn: () => fetchScansPage(token!, { limit: 50, sort_desc: true }),
     enabled: Boolean(token),
   });
+
+  const pilotsQuery = useQuery({
+    queryKey: ["pilots", token],
+    queryFn: () => fetchPilots(token!),
+    enabled: Boolean(token && (activeTab === "assets" || activeTab === "pilot")),
+  });
+
+  const pilotAssetIds = new Set(
+    (pilotsQuery.data ?? [])
+      .filter((p) => p.status === "ACTIVE" || p.status === "PAUSED")
+      .map((p) => p.asset_id)
+  );
 
   const selectedAssetAuthsQuery = useQuery({
     queryKey: ["asset-authorizations", token, selectedAssetId],
@@ -741,6 +772,32 @@ export function SocConsole() {
             >
               <Zap className="h-4 w-4" />
               Automações & Integrações
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("pilot")}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
+                activeTab === "pilot"
+                  ? "bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30"
+                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60"
+              }`}
+            >
+              <ShieldCheck className="h-4 w-4" />
+              Piloto &amp; Expansão
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("security_tools")}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
+                activeTab === "security_tools"
+                  ? "bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30"
+                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60"
+              }`}
+            >
+              <Wrench className="h-4 w-4" />
+              Segurança &amp; Ferramentas
             </button>
 
             <button
@@ -1554,6 +1611,7 @@ export function SocConsole() {
                       orgName={authSession.active_organization.name}
                       assets={assetsQuery.data ?? []}
                       selectedAssetId={selectedAssetId}
+                      pilotAssetIds={pilotAssetIds}
                       onManageAuthorization={setSelectedAssetId}
                       onAudit={(id) => {
                         setSelectedScanAssetId(id);
@@ -1581,6 +1639,14 @@ export function SocConsole() {
                         </CardTitle>
                       </CardHeader>
                       <CardContent className="space-y-4 text-xs">
+                        {assetFeedback && (
+                          <div
+                            role="status"
+                            className="p-3 rounded border border-sky-500/40 bg-sky-500/10 text-sky-400 text-xs"
+                          >
+                            {assetFeedback}
+                          </div>
+                        )}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
                           <div>
                             <label
@@ -2298,6 +2364,35 @@ export function SocConsole() {
             </div>
           )}
 
+          {activeTab === "pilot" && (
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-lg font-bold">
+                  Piloto Operacional e Expansão Controlada
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Valide o ciclo completo em ambiente próprio antes de habilitar clientes autorizados com escopo estrito.
+                </p>
+              </div>
+              {authSession && token ? (
+                <PilotRolloutPanel
+                  token={token}
+                  role={authSession.active_role}
+                  assets={assetsQuery.data ?? []}
+                />
+              ) : (
+                <Card>
+                  <CardContent className="space-y-3 p-4 text-sm">
+                    <p>Autentique-se para gerenciar habilitações e revisões do piloto.</p>
+                    <Button size="sm" onClick={() => setActiveTab("auth")}>
+                      Acessar
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+
           {activeTab === "org_audit" && (
             <div className="space-y-6">
               <div>
@@ -2652,6 +2747,14 @@ export function SocConsole() {
                 ))}
               </div>
             </div>
+          )}
+
+          {activeTab === "security_tools" && (
+            <SecurityToolsPanel
+              token={token}
+              assets={assetsQuery.data ?? []}
+              onNavigateToScans={() => setActiveTab("scans")}
+            />
           )}
 
           {activeTab === "scope_validator" && (

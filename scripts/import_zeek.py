@@ -16,6 +16,7 @@ from uuid import UUID
 from _local_api import api_base_url, local_api_opener
 
 BATCH_SIZE = 200
+COLLECTOR_VERSION = "1.1.0"
 MAX_LINE_BYTES = 64 * 1024
 MAX_BYTE_COUNT = (1 << 63) - 1
 UID_PATTERN = re.compile(r"[A-Za-z0-9]{1,64}")
@@ -36,6 +37,22 @@ class CollectorApi:
             result = json.load(response)
         if not isinstance(result, dict) or not isinstance(result.get("network"), str):
             raise TypeError("A API não retornou um estado de fonte válido.")
+        return result
+
+    def heartbeat(
+        self,
+        collector_version: str = COLLECTOR_VERSION,
+        applied_config_version: int | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {"collector_version": collector_version}
+        if applied_config_version is not None:
+            payload["applied_config_version"] = applied_config_version
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        request = Request(f"{self.endpoint}/heartbeat", data=body, headers=self.headers, method="POST")
+        with self.opener.open(request, timeout=10) as response:
+            result = json.load(response)
+        if not isinstance(result, dict) or not isinstance(result.get("network"), str):
+            raise TypeError("A API não retornou um estado de fonte válido após heartbeat.")
         return result
 
     def submit(self, batch: list[ConnectionMetadata]) -> tuple[int, int]:

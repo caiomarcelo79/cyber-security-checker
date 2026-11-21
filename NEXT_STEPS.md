@@ -111,8 +111,23 @@ O ponto de retomada e o roteiro de validação ficam em [PROGRESS.md](PROGRESS.m
 
 ### Fase 3 — Disponibilidade
 
-- [ ] **3.1 — Criar o primeiro exercício de disponibilidade.** Preparar em laboratório uma sequência sintética com estado normal, degradação e recuperação. Validar um limiar de alerta e a publicação na caixa de notificações do analista. Registrar a linha do tempo esperada e a observada.
-- [ ] **3.2 — Ampliar métricas e fontes de observação.** Adicionar cenários de latência, erros e saturação. Quando uma fonte autorizada estiver disponível, incorporar alertas de firewall, CDN ou provedor.
+- [x] **3.1 — Criar o primeiro exercício de disponibilidade.** Preparar em laboratório uma sequência sintética com estado normal, degradação e recuperação. Validar um limiar de alerta e a publicação na caixa de notificações do analista. Registrar a linha do tempo esperada e a observada.
+- [x] **3.2 — Ampliar métricas e fontes de observação.** Adicionar cenários de latência, erros e saturação. Quando uma fonte autorizada estiver disponível, incorporar alertas de firewall, CDN ou provedor.
+
+### Fase 4 — Tráfego suspeito
+
+- [x] **4.1 — Detectar anomalias explicáveis de conexões, DNS e identidade TLS.** Ingestão autenticada em fonte `TelemetrySource` via [scripts/analyze_traffic.py](scripts/analyze_traffic.py) (`conn.log`, `dns.log` e `ssl.log`) e `POST /api/v1/telemetry/sources/{source_id}/traffic-analyses`, avaliação determinística em [suspicious_traffic_logic.py](backend/app/services/suspicious_traffic_logic.py) (`CONNECTION_PORT_SWEEP`, `CONNECTION_REPEATED_BURST`, `DNS_NXDOMAIN_BURST`, `DNS_HIGH_ENTROPY_QUERY` e `TLS_POSSIBLE_INTERCEPTION`), distinção explícita de rotação legítima de certificado (`BENIGN_ROTATION`) sem falso positivo e persistência com evidência sanitizada, confiança e cobertura por camada.
+- [x] **4.2 — Correlacionar sinais de antivírus/EDR e exibir no Console SOC.** Sinais opcionais (`ANTIVIRUS`, `EDR`) ingeridos via `edr_signals` / `--edr-log` ([analyze_traffic.py](scripts/analyze_traffic.py)), validados no segmento CIDR autorizado, correlacionados por `host_ip` em [suspicious_traffic_logic.py](backend/app/services/suspicious_traffic_logic.py) (elevando cobertura para `EDR` e confiança/severidade para `HIGH` nos alertas do mesmo host) e exibidos em modo somente leitura em [suspicious-traffic-panel.tsx](frontend/src/components/suspicious-traffic-panel.tsx) dentro de **Sistemas e Ativos → Ver detalhes**.
+
+### Fase 5 — Triagem assistida por IA
+
+- [x] **5.1 — Resumir evidências sanitizadas, explicar alertas e sugerir correções com fallback resiliente.** Motor [ai_triage_logic.py](backend/app/services/ai_triage_logic.py), serviço [ai_triage_service.py](backend/app/services/ai_triage_service.py), rotas [ai_triage_routes.py](backend/app/api/v1/ai_triage_routes.py) e migração [0012_ai_triage_suggestions.py](backend/alembic/versions/0012_ai_triage_suggestions.py) para alertas de tráfego suspeito (`SuspiciousTrafficAlert`) e vulnerabilidades (`FindingRecord`), validando citações na evidência sanitizada e degradando graciosamente para síntese determinística (`DETERMINISTIC_FALLBACK`) quando a IA está desligada, indisponível ou sem fundamentação.
+- [x] **5.2 — Revisão e decisão pelo analista no Console SOC.** Endpoint `PATCH /api/v1/triage-suggestions/{suggestion_id}/review` (`APPROVED` / `REJECTED` com sanitização de nota do revisor e auditoria `AI_TRIAGE_SUGGESTION_REVIEWED`) e componente [ai-triage-card.tsx](frontend/src/components/ai-triage-card.tsx) integrado em [suspicious-traffic-panel.tsx](frontend/src/components/suspicious-traffic-panel.tsx) e [vulnerabilities-panel.tsx](frontend/src/components/vulnerabilities-panel.tsx).
+
+### Fase 6 — Piloto e expansão
+
+- [x] **6.1 — Demonstrar instalação, pausa, atualização, revogação, recuperação e revisar cobertura, latência e falsos positivos em ambiente próprio (`OWN_ENVIRONMENT`).** Ciclo operacional estendido em `TelemetrySource` ([network_telemetry.py](backend/app/services/network_telemetry.py), [network_telemetry_routes.py](backend/app/api/v1/network_telemetry_routes.py), [telemetry-sources-panel.tsx](frontend/src/components/telemetry-sources-panel.tsx), [desktop_collector.py](scripts/desktop_collector.py) e [pilot_lifecycle.py](scripts/pilot_lifecycle.py)), migração [0013_pilot_rollout.py](backend/alembic/versions/0013_pilot_rollout.py) e consolidação real de prontidão em [pilot_logic.py](backend/app/services/pilot_logic.py).
+- [x] **6.2 — Habilitar cliente autorizado (`AUTHORIZED_CLIENT`) com escopo definido após aprovação.** Governança multi-tenant em [pilot_service.py](backend/app/services/pilot_service.py), [pilot_routes.py](backend/app/api/v1/pilot_routes.py), guarda compartilhada em [lab_authorization.py](backend/app/services/lab_authorization.py) e painel **Piloto & Expansão** ([pilot-rollout-panel.tsx](frontend/src/components/pilot-rollout-panel.tsx)) exigindo pré-requisito aprovado em ambiente próprio, papel `ADMIN`, autorização `DNS_TXT`/`HTTP_WELL_KNOWN` vigente, limites de CIDR (`allowed_cidrs`), capacidade (`enabled_capabilities`) e `max_sources`.
 
 ### Outros itens do backlog 1.1
 
